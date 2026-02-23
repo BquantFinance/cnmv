@@ -427,7 +427,12 @@ canvas{display:block}
 .li{display:flex;align-items:center;gap:6px;font-size:11px;color:#64748B;letter-spacing:0.3px}
 .ld{width:7px;height:7px;border-radius:50%}
 #hint{position:absolute;bottom:20px;right:20px;color:#334155;font-size:10px;letter-spacing:0.5px;z-index:50}
+.fade-t{position:absolute;top:0;left:0;right:0;height:80px;background:linear-gradient(to bottom,#030712 0%,transparent 100%);pointer-events:none;z-index:5}
+.fade-b{position:absolute;bottom:0;left:0;right:0;height:80px;background:linear-gradient(to top,#030712 0%,transparent 100%);pointer-events:none;z-index:5}
+.fade-l{position:absolute;top:0;left:0;bottom:0;width:40px;background:linear-gradient(to right,#030712 0%,transparent 100%);pointer-events:none;z-index:5}
+.fade-r{position:absolute;top:0;right:0;bottom:0;width:40px;background:linear-gradient(to left,#030712 0%,transparent 100%);pointer-events:none;z-index:5}
 </style></head><body>
+<div class="fade-t"></div><div class="fade-b"></div><div class="fade-l"></div><div class="fade-r"></div>
 <div id="tip"></div>
 <div id="ld"><div class="sp"></div>Cargando red</div>
 <div id="leg">
