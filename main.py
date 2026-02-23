@@ -150,10 +150,12 @@ def parse_socios(s):
     return r
 
 @st.cache_data
-def build_graph(_E):
+def build_graph(_E, _F):
     G = nx.Graph()
     people_map = {}  # person -> [(entity, cargo, tipo)]
     socios_map = {}  # socio -> [(entity, pct, tipo)]
+
+    # ── Phase 1: SAV / EAF entities + admins + socios ──
     for _, r in _E.iterrows():
         ent = r["nombre"]; tipo = r["tipo_entidad"]
         G.add_node(ent, nt="entity", et=tipo, prov=str(r.get("direccion_provincia","")))
@@ -167,12 +169,38 @@ def build_graph(_E):
             if nm not in G: G.add_node(nm, nt="socio")
             G.add_edge(ent, nm, rel="socio", pct=s.get("Pct"))
             socios_map.setdefault(nm, []).append((ent, s.get("Pct"), tipo))
+
+    # ── Phase 2: Capital Riesgo — gestoras, depositarias, funds ──
+    uf = _F.drop_duplicates("entity_name")
+    for _, r in uf.iterrows():
+        fund = r["entity_name"]
+        if fund not in G:
+            G.add_node(fund, nt="fund", et=str(r.get("entity_type","")))
+
+        gest = r.get("gestora_nombre")
+        if pd.notna(gest) and str(gest).strip():
+            gest = str(gest).strip()
+            if gest not in G:
+                G.add_node(gest, nt="gestora")
+            G.add_edge(fund, gest, rel="gestion")
+
+        dep = r.get("depositaria_nombre")
+        if pd.notna(dep) and str(dep).strip():
+            dep = str(dep).strip()
+            if dep not in G:
+                G.add_node(dep, nt="depositaria")
+            elif G.nodes[dep].get("nt") == "socio":
+                # BRIDGE: socio in SAV/EAF is also a depositaria → promote
+                G.nodes[dep]["nt"] = "depositaria"
+                G.nodes[dep]["bridge"] = True
+            G.add_edge(fund, dep, rel="deposito")
+
     cross = {k:v for k,v in people_map.items() if len(set(e[0] for e in v)) > 1}
     return G, people_map, socios_map, cross
 
 E = load_entities()
 F = load_funds()
-G, people_map, socios_map, cross_people = build_graph(E)
+G, people_map, socios_map, cross_people = build_graph(E, F)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # HELPERS
@@ -319,20 +347,30 @@ if page == "🕸️  Red de Poder":
         for idx, comp in enumerate(comps):
             sub = H.subgraph(comp)
             n_nodes = len(comp)
-            comp_radius = max(0.6, np.sqrt(n_nodes) * 0.5)
+            # Scale radius with component size — big clusters get more space
+            comp_radius = max(0.6, np.sqrt(n_nodes) * 0.35 + n_nodes * 0.005)
 
             t = idx * 0.8
-            spiral_r = 2.8 * np.sqrt(t + 1)
+            spiral_r = 3.5 * np.sqrt(t + 1)
             phi = golden_angle * idx
             theta = np.arccos(1 - 2 * ((idx + 0.5) / max(n_comps, 1)))
 
             cx = spiral_r * np.sin(theta) * np.cos(phi)
             cy = spiral_r * np.sin(theta) * np.sin(phi)
-            cz = spiral_r * np.cos(theta) * 0.65
+            cz = spiral_r * np.cos(theta) * 0.5
 
             if n_nodes == 1:
                 n = list(comp)[0]
                 pos[n] = (cx + rng.uniform(-0.2, 0.2), cy + rng.uniform(-0.2, 0.2), cz + rng.uniform(-0.2, 0.2))
+            elif n_nodes > 500:
+                # Large component: use spring with lower k for tighter packing
+                local = nx.spring_layout(sub, k=0.8, iterations=50, seed=42, dim=3)
+                for n, coords in local.items():
+                    pos[n] = (
+                        coords[0] * comp_radius + cx,
+                        coords[1] * comp_radius + cy,
+                        coords[2] * comp_radius * 0.4 + cz,
+                    )
             else:
                 local = nx.spring_layout(sub, k=1.4, iterations=40, seed=42, dim=3)
                 for n, coords in local.items():
@@ -362,21 +400,38 @@ if page == "🕸️  Red de Poder":
 <html><head><meta charset="utf-8">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#030712;overflow:hidden;font-family:system-ui,-apple-system,sans-serif}
-#tip{position:absolute;background:rgba(3,7,18,0.94);border:1px solid rgba(100,255,218,0.15);
-  border-radius:10px;padding:12px 16px;color:#E2E8F0;font-size:12px;pointer-events:none;
-  display:none;max-width:320px;z-index:100;backdrop-filter:blur(12px);box-shadow:0 8px 32px rgba(0,0,0,0.5)}
-.tn{font-weight:700;font-size:13px;margin-bottom:3px;color:#F1F5F9}
-.tt{color:#64FFDA;font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+body,html{background:#030712;overflow:hidden;font-family:system-ui,-apple-system,sans-serif;width:100%;height:100%}
+canvas{display:block}
+#tip{position:absolute;background:rgba(6,10,23,0.92);border:1px solid rgba(100,255,218,0.12);
+  border-radius:12px;padding:14px 18px;color:#E2E8F0;font-size:12px;pointer-events:none;
+  display:none;max-width:320px;z-index:100;backdrop-filter:blur(16px);
+  box-shadow:0 4px 24px rgba(0,0,0,0.4),0 0 40px rgba(100,255,218,0.03)}
+.tn{font-weight:700;font-size:13px;margin-bottom:4px;color:#F8FAFC}
+.tt{font-size:9.5px;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:5px;opacity:0.7}
+.tt-e{color:#64FFDA}.tt-a{color:#FFA726}.tt-s{color:#B388FF}.tt-g{color:#FF6B9D}.tt-d{color:#E0F7FA}.tt-f{color:#26A69A}
 .td{color:#94A3B8;font-size:11px}
 #ld{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#1E293B;
-  font-size:12px;letter-spacing:3px;text-transform:uppercase;z-index:200}
-.sp{width:24px;height:24px;border:2px solid #0a1628;border-top-color:#64FFDA;
-  border-radius:50%;animation:r .8s linear infinite;margin:0 auto 10px}
+  font-size:11px;letter-spacing:4px;text-transform:uppercase;z-index:200}
+.sp{width:20px;height:20px;border:2px solid #0a1628;border-top-color:#64FFDA;
+  border-radius:50%;animation:r .7s linear infinite;margin:0 auto 8px}
 @keyframes r{to{transform:rotate(360deg)}}
+#leg{position:absolute;bottom:20px;left:20px;display:flex;gap:18px;align-items:center;z-index:50}
+.li{display:flex;align-items:center;gap:6px;font-size:11px;color:#64748B;letter-spacing:0.3px}
+.ld{width:7px;height:7px;border-radius:50%}
+#hint{position:absolute;bottom:20px;right:20px;color:#334155;font-size:10px;letter-spacing:0.5px;z-index:50}
 </style></head><body>
 <div id="tip"></div>
 <div id="ld"><div class="sp"></div>Cargando red</div>
+<div id="leg">
+  <div class="li"><div class="ld" style="background:#E0F7FA;box-shadow:0 0 8px #E0F7FA88"></div>Depositarias</div>
+  <div class="li"><div class="ld" style="background:#00FFD0;box-shadow:0 0 6px #00FFD066"></div>SAV/EAF</div>
+  <div class="li"><div class="ld" style="background:#FF6B9D;box-shadow:0 0 6px #FF6B9D66"></div>Gestoras</div>
+  <div class="li"><div class="ld" style="background:#B388FF;box-shadow:0 0 6px #B388FF66"></div>Socios</div>
+  <div class="li"><div class="ld" style="background:#FFA726;box-shadow:0 0 6px #FFA72666"></div>Admins</div>
+  <div class="li"><div class="ld" style="background:#26A69A;box-shadow:0 0 6px #26A69A66"></div>Fondos CR</div>
+</div>
+<div id="hint">Arrastra para rotar &middot; Scroll para zoom</div>
+
 <script type="importmap">
 {"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
 </script>
@@ -389,90 +444,143 @@ import {UnrealBloomPass} from 'three/addons/postprocessing/UnrealBloomPass.js';
 import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
 
 const D = "__GRAPH_DATA__";
-const W=window.innerWidth, H=window.innerHeight;
+let W=window.innerWidth, H=window.innerHeight;
 
+// ── Scene ──
 const scene=new THREE.Scene();
 scene.background=new THREE.Color(0x030712);
-scene.fog=new THREE.FogExp2(0x030712, 0.005);
+scene.fog=new THREE.FogExp2(0x030712, 0.003);
 
-const camera=new THREE.PerspectiveCamera(65,W/H,0.1,300);
-camera.position.set(D.core[0]+18, D.core[1]+18, D.core[2]+12);
+// ── Camera ──
+const camera=new THREE.PerspectiveCamera(60, W/H, 0.1, 600);
+camera.position.set(D.core[0]+30, D.core[1]+30, D.core[2]+20);
 
-const renderer=new THREE.WebGLRenderer({antialias:true});
+// ── Renderer ──
+const renderer=new THREE.WebGLRenderer({antialias:true, alpha:false});
 renderer.setSize(W,H);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
 renderer.toneMapping=THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure=1.1;
+renderer.toneMappingExposure=1.0;
 document.body.appendChild(renderer.domElement);
 
-scene.add(new THREE.AmbientLight(0x0d1f3c,0.6));
-const pl=new THREE.PointLight(0x64FFDA,0.5,120);
-pl.position.copy(camera.position); scene.add(pl);
-const pl2=new THREE.PointLight(0x7C4DFF,0.25,100);
-pl2.position.set(D.core[0]-10,D.core[1]+10,D.core[2]+5); scene.add(pl2);
+// ── Lights — 3-point setup ──
+scene.add(new THREE.AmbientLight(0x0d1f3c, 0.5));
+const keyLight=new THREE.PointLight(0x64FFDA, 0.45, 250);
+keyLight.position.copy(camera.position); scene.add(keyLight);
+const fillLight=new THREE.PointLight(0xB388FF, 0.2, 180);
+fillLight.position.set(D.core[0]-15, D.core[1]+15, D.core[2]+8); scene.add(fillLight);
+const rimLight=new THREE.PointLight(0xFFA726, 0.12, 150);
+rimLight.position.set(D.core[0]+10, D.core[1]-20, D.core[2]-5); scene.add(rimLight);
 
+// ── Controls ──
 const ctrl=new OrbitControls(camera,renderer.domElement);
-ctrl.target.set(D.core[0],D.core[1],D.core[2]);
-ctrl.enableDamping=true; ctrl.dampingFactor=0.04;
-ctrl.autoRotate=true; ctrl.autoRotateSpeed=0.25;
-ctrl.maxDistance=120; ctrl.minDistance=2; ctrl.update();
+ctrl.target.set(D.core[0], D.core[1], D.core[2]);
+ctrl.enableDamping=true; ctrl.dampingFactor=0.05;
+ctrl.autoRotate=true; ctrl.autoRotateSpeed=0.2;
+ctrl.maxDistance=250; ctrl.minDistance=3; ctrl.update();
 
+// ── Post-processing ──
 const composer=new EffectComposer(renderer);
-composer.addPass(new RenderPass(scene,camera));
-composer.addPass(new UnrealBloomPass(new THREE.Vector2(W,H),0.8,0.5,0.3));
+composer.addPass(new RenderPass(scene, camera));
+composer.addPass(new UnrealBloomPass(new THREE.Vector2(W,H), 0.7, 0.5, 0.35));
 composer.addPass(new OutputPass());
 
+// ── Edges — colored by connected node types ──
 const eP=new Float32Array(D.edges.length*6);
+const eC=new Float32Array(D.edges.length*6);
+const nodePos={};
+D.nodes.forEach(n=>{nodePos[n.n]={x:n.x,y:n.y,z:n.z,t:n.t}});
 for(let i=0;i<D.edges.length;i++){
   const e=D.edges[i];
-  eP[i*6]=e.a[0];eP[i*6+1]=e.a[1];eP[i*6+2]=e.a[2];
-  eP[i*6+3]=e.b[0];eP[i*6+4]=e.b[1];eP[i*6+5]=e.b[2];
+  eP[i*6]=e.a[0]; eP[i*6+1]=e.a[1]; eP[i*6+2]=e.a[2];
+  eP[i*6+3]=e.b[0]; eP[i*6+4]=e.b[1]; eP[i*6+5]=e.b[2];
+  // Subtle teal tint for all edges
+  const c=new THREE.Color(0x0a2e2e);
+  eC[i*6]=c.r; eC[i*6+1]=c.g; eC[i*6+2]=c.b;
+  eC[i*6+3]=c.r; eC[i*6+4]=c.g; eC[i*6+5]=c.b;
 }
-const eG=new THREE.BufferGeometry();
-eG.setAttribute('position',new THREE.BufferAttribute(eP,3));
-scene.add(new THREE.LineSegments(eG,new THREE.LineBasicMaterial({color:0x1e5050,transparent:true,opacity:0.45})));
+const eGeo=new THREE.BufferGeometry();
+eGeo.setAttribute('position', new THREE.BufferAttribute(eP,3));
+eGeo.setAttribute('color', new THREE.BufferAttribute(eC,3));
+scene.add(new THREE.LineSegments(eGeo,
+  new THREE.LineBasicMaterial({vertexColors:true, transparent:true, opacity:0.55})));
 
-const sG=new THREE.IcosahedronGeometry(1,2);
+// ── Nodes ──
+const sGeo=new THREE.IcosahedronGeometry(1,3);
 const types={
-  entity:{color:0x00FFD0,emissive:0x00FFD0,eI:0.35,sMin:0.08,sMax:0.38,label:'Entidad'},
-  admin:{color:0xFFA726,emissive:0xFFA726,eI:0.25,sMin:0.04,sMax:0.13,label:'Administrador'},
-  socio:{color:0x7C4DFF,emissive:0x7C4DFF,eI:0.25,sMin:0.04,sMax:0.13,label:'Socio'}
+  depositaria:{color:0xE0F7FA,emissive:0xE0F7FA,eI:0.55,sMin:0.35,sMax:0.65,label:'Depositaria',cls:'tt-d'},
+  entity:{color:0x00FFD0, emissive:0x00FFD0, eI:0.3, sMin:0.10, sMax:0.38, label:'Entidad SAV/EAF', cls:'tt-e'},
+  gestora:{color:0xFF6B9D,emissive:0xFF6B9D,eI:0.25,sMin:0.06,sMax:0.22,label:'Gestora',cls:'tt-g'},
+  admin: {color:0xFFA726, emissive:0xFFA726, eI:0.2, sMin:0.04, sMax:0.12, label:'Administrador', cls:'tt-a'},
+  socio: {color:0xB388FF, emissive:0xB388FF, eI:0.2, sMin:0.04, sMax:0.12, label:'Socio', cls:'tt-s'},
+  fund:{color:0x26A69A,emissive:0x26A69A,eI:0.08,sMin:0.02,sMax:0.055,label:'Fondo Capital Riesgo',cls:'tt-f'}
 };
-const mM={},nM={},dm=new THREE.Object3D();
+const mM={}, nM={}, dm=new THREE.Object3D();
+
 for(const[type,cfg] of Object.entries(types)){
   const nodes=D.nodes.filter(n=>n.t===type);
   if(!nodes.length)continue;
   nM[type]=nodes;
-  const mat=new THREE.MeshStandardMaterial({color:cfg.color,emissive:cfg.emissive,
-    emissiveIntensity:cfg.eI,roughness:0.3,metalness:0.1});
-  const mesh=new THREE.InstancedMesh(sG,mat,nodes.length);
+  const mat=new THREE.MeshStandardMaterial({
+    color:cfg.color, emissive:cfg.emissive, emissiveIntensity:cfg.eI,
+    roughness:0.25, metalness:0.15
+  });
+  const mesh=new THREE.InstancedMesh(sGeo, mat, nodes.length);
   const mx=Math.max(...nodes.map(n=>n.d),1);
   for(let i=0;i<nodes.length;i++){
     const n=nodes[i], s=cfg.sMin+(n.d/mx)*(cfg.sMax-cfg.sMin);
-    dm.position.set(n.x,n.y,n.z); dm.scale.setScalar(s);
-    dm.updateMatrix(); mesh.setMatrixAt(i,dm.matrix);
+    dm.position.set(n.x,n.y,n.z);
+    dm.scale.setScalar(s);
+    dm.updateMatrix();
+    mesh.setMatrixAt(i,dm.matrix);
   }
   mesh.instanceMatrix.needsUpdate=true;
   scene.add(mesh); mM[type]=mesh;
 }
 
-const dN=2000,dP=new Float32Array(dN*3),dC=new Float32Array(dN*3);
+// ── Ambient dust particles ──
+const dN=4000, dPos=new Float32Array(dN*3), dCol=new Float32Array(dN*3);
+const dSizes=new Float32Array(dN);
 for(let i=0;i<dN;i++){
-  dP[i*3]=(Math.random()-0.5)*160;dP[i*3+1]=(Math.random()-0.5)*160;dP[i*3+2]=(Math.random()-0.5)*160;
-  const b=0.02+Math.random()*0.04;
-  dC[i*3]=b*0.6;dC[i*3+1]=b;dC[i*3+2]=b*0.9;
+  dPos[i*3]=(Math.random()-0.5)*300;
+  dPos[i*3+1]=(Math.random()-0.5)*300;
+  dPos[i*3+2]=(Math.random()-0.5)*300;
+  const b=0.015+Math.random()*0.035;
+  const hue=Math.random();
+  if(hue<0.5){dCol[i*3]=b*0.4;dCol[i*3+1]=b;dCol[i*3+2]=b*0.85}
+  else if(hue<0.8){dCol[i*3]=b*0.6;dCol[i*3+1]=b*0.55;dCol[i*3+2]=b}
+  else{dCol[i*3]=b;dCol[i*3+1]=b*0.7;dCol[i*3+2]=b*0.3}
+  dSizes[i]=0.04+Math.random()*0.12;
 }
-const dG=new THREE.BufferGeometry();
-dG.setAttribute('position',new THREE.BufferAttribute(dP,3));
-dG.setAttribute('color',new THREE.BufferAttribute(dC,3));
-scene.add(new THREE.Points(dG,new THREE.PointsMaterial({size:0.12,vertexColors:true,transparent:true,opacity:0.6,sizeAttenuation:true})));
+const dGeo=new THREE.BufferGeometry();
+dGeo.setAttribute('position',new THREE.BufferAttribute(dPos,3));
+dGeo.setAttribute('color',new THREE.BufferAttribute(dCol,3));
+scene.add(new THREE.Points(dGeo,
+  new THREE.PointsMaterial({size:0.1,vertexColors:true,transparent:true,opacity:0.5,sizeAttenuation:true})));
 
+// ── Subtle ground ring at the core ──
+const ringGeo=new THREE.RingGeometry(20, 20.08, 128);
+const ringMat=new THREE.MeshBasicMaterial({color:0x0a2a2a, transparent:true, opacity:0.15, side:THREE.DoubleSide});
+const ring=new THREE.Mesh(ringGeo, ringMat);
+ring.position.set(D.core[0], D.core[1], D.core[2]-2);
+ring.rotation.x=Math.PI/2;
+scene.add(ring);
+const ring2Geo=new THREE.RingGeometry(40, 40.06, 128);
+const ring2=new THREE.Mesh(ring2Geo, ringMat.clone());
+ring2.material.opacity=0.08;
+ring2.position.set(D.core[0], D.core[1], D.core[2]-2);
+ring2.rotation.x=Math.PI/2;
+scene.add(ring2);
+
+// ── Tooltip ──
 const tip=document.getElementById('tip');
 const rc=new THREE.Raycaster();
 const msv=new THREE.Vector2();
 let mx2=0,my2=0;
-document.addEventListener('mousemove',e=>{
-  msv.x=(e.clientX/W)*2-1; msv.y=-(e.clientY/H)*2+1;
+renderer.domElement.addEventListener('mousemove',e=>{
+  const rect=renderer.domElement.getBoundingClientRect();
+  msv.x=((e.clientX-rect.left)/rect.width)*2-1;
+  msv.y=-((e.clientY-rect.top)/rect.height)*2+1;
   mx2=e.clientX; my2=e.clientY;
 });
 
@@ -483,42 +591,60 @@ function hov(){
     const its=rc.intersectObject(mesh);
     if(its.length){
       const nd=nM[type][its[0].instanceId];
-      tip.innerHTML='<div class="tn">'+nd.n+'</div><div class="tt">'+types[type].label+'</div><div class="td">'+nd.d+' conexiones</div>';
+      tip.innerHTML='<div class="tn">'+nd.n+'</div><div class="tt '+types[type].cls+'">'+types[type].label+'</div><div class="td">'+nd.d+' conexiones</div>';
       tip.style.display='block';
       tip.style.left=Math.min(mx2+16,W-330)+'px';
       tip.style.top=Math.max(my2-60,8)+'px';
-      hit=true; document.body.style.cursor='pointer'; break;
+      hit=true; renderer.domElement.style.cursor='pointer'; break;
     }
   }
-  if(!hit){tip.style.display='none';document.body.style.cursor='grab';}
+  if(!hit){tip.style.display='none'; renderer.domElement.style.cursor='grab';}
 }
 
 document.getElementById('ld').style.display='none';
 
+// ── Animate ──
+let t=0;
 function animate(){
   requestAnimationFrame(animate);
-  ctrl.update(); pl.position.copy(camera.position);
-  hov(); composer.render();
+  t+=0.005;
+  ctrl.update();
+  keyLight.position.copy(camera.position);
+  // Subtle dust drift
+  const dp=dGeo.attributes.position.array;
+  for(let i=0;i<dN;i++){
+    dp[i*3+1]+=Math.sin(t+i*0.01)*0.003;
+  }
+  dGeo.attributes.position.needsUpdate=true;
+  hov();
+  composer.render();
 }
 animate();
 
 window.addEventListener('resize',()=>{
-  const w=window.innerWidth,h=window.innerHeight;
-  camera.aspect=w/h;camera.updateProjectionMatrix();
-  renderer.setSize(w,h);composer.setSize(w,h);
+  W=window.innerWidth; H=window.innerHeight;
+  camera.aspect=W/H; camera.updateProjectionMatrix();
+  renderer.setSize(W,H); composer.setSize(W,H);
 });
 </script></body></html>'''.replace('"__GRAPH_DATA__"', graph_json)
 
+    # Hide iframe border + seamless background
+    st.markdown('''<style>
+    iframe[title="streamlit_components_v1.html"]{border:none!important;background:#030712!important}
+    .stElementContainer:has(iframe){background:#030712!important;border-radius:0!important;padding:0!important}
+    </style>''', unsafe_allow_html=True)
     _stc.html(threejs_html, height=850)
 
-    # ── Legend + KPIs BELOW the graph ──
-    st.markdown('<div class="nleg"><div class="nleg-i"><div class="nleg-d" style="background:#0FF0B3"></div> Entidades SAV/EAF</div><div class="nleg-i"><div class="nleg-d" style="background:#818CF8"></div> Socios / Accionistas</div><div class="nleg-i"><div class="nleg-d" style="background:#FFBE0B"></div> Administradores</div><div class="nleg-i" style="margin-left:auto;color:#475569;font-size:.7rem">Arrastra para rotar · Scroll para zoom</div></div>', unsafe_allow_html=True)
+    # Legend is now inside Three.js canvas
 
+    n_gest = sum(1 for n in G.nodes() if G.nodes[n].get("nt") == "gestora")
+    n_dep = sum(1 for n in G.nodes() if G.nodes[n].get("nt") == "depositaria")
+    n_funds = sum(1 for n in G.nodes() if G.nodes[n].get("nt") == "fund")
     kpi_row([
-        (str(G.number_of_nodes()), "Nodos en la Red", "🔵", "c1"),
-        (str(G.number_of_edges()), "Conexiones", "🔗", "c2"),
-        (str(len(cross_people)), "Personas Multi-Entidad", "👥", "c3"),
-        (str(len(E)), "Entidades Reguladas", "🏛️", "c4"),
+        (f"{G.number_of_nodes():,}", "Nodos en la Red", "🔵", "c1"),
+        (f"{G.number_of_edges():,}", "Conexiones", "🔗", "c2"),
+        (f"{len(E)} + {n_gest}", "SAV/EAF + Gestoras", "🏛️", "c3"),
+        (f"{n_funds:,}", "Fondos Capital Riesgo", "💰", "c4"),
     ])
 
     gdiv()
