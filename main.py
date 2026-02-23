@@ -337,7 +337,7 @@ with st.sidebar:
 # ║  RED DE PODER (LANDING)                                       ║
 # ╚═══════════════════════════════════════════════════════════════╝
 if page == "🕸️  Red de Poder":
-    st.markdown('<div class="hero"><div class="hero-title">Red de <span class="em">Poder</span> Financiero</div><div class="hero-sub">El mapa tridimensional de relaciones entre entidades, administradores y socios del ecosistema de valores español. Arrastra para rotar.</div></div>', unsafe_allow_html=True)
+    st.markdown('<div class="hero"><div class="hero-title">Red de <span class="em">Poder</span> Financiero</div><div class="hero-sub">El mapa tridimensional de relaciones entre entidades, gestoras, depositarias, administradores y socios del ecosistema financiero español. Arrastra para rotar.</div></div>', unsafe_allow_html=True)
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # 3D NETWORK — THREE.JS WEBGL + BLOOM
@@ -393,9 +393,11 @@ if page == "🕸️  Red de Poder":
 
     # ── Serialize for Three.js ──
     nodes_js = [{"n": n[:55], "x": round(float(pos3d[n][0]),3), "y": round(float(pos3d[n][1]),3),
-                 "z": round(float(pos3d[n][2]),3), "t": G.nodes[n].get("nt",""), "d": G.degree(n)}
+                 "z": round(float(pos3d[n][2]),3), "t": G.nodes[n].get("nt",""), "d": G.degree(n),
+                 "nf": G.nodes[n].get("n_funds",0)}
                 for n in G.nodes() if n in pos3d]
-    edges_js = [{"a": [round(float(c),3) for c in pos3d[u]], "b": [round(float(c),3) for c in pos3d[v]]}
+    edges_js = [{"a": [round(float(c),3) for c in pos3d[u]], "b": [round(float(c),3) for c in pos3d[v]],
+                 "ta": G.nodes[u].get("nt",""), "tb": G.nodes[v].get("nt","")}
                 for u, v in G.edges() if u in pos3d and v in pos3d]
     top30 = sorted(pos3d.keys(), key=lambda n: G.degree(n), reverse=True)[:30]
     core = [round(float(c),3) for c in np.array([pos3d[n] for n in top30]).mean(axis=0)]
@@ -410,28 +412,32 @@ body,html{background:#030712;overflow:hidden;font-family:system-ui,-apple-system
 canvas{display:block}
 #tip{position:absolute;background:rgba(6,10,23,0.92);border:1px solid rgba(100,255,218,0.12);
   border-radius:12px;padding:14px 18px;color:#E2E8F0;font-size:12px;pointer-events:none;
-  display:none;max-width:320px;z-index:100;backdrop-filter:blur(16px);
+  display:none;max-width:340px;z-index:100;backdrop-filter:blur(16px);
   box-shadow:0 4px 24px rgba(0,0,0,0.4),0 0 40px rgba(100,255,218,0.03)}
-.tn{font-weight:700;font-size:13px;margin-bottom:4px;color:#F8FAFC}
-.tt{font-size:9.5px;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:5px;opacity:0.7}
-.tt-e{color:#64FFDA}.tt-a{color:#FFA726}.tt-s{color:#B388FF}.tt-g{color:#FF6B9D}.tt-d{color:#E0F7FA}
+.tn{font-weight:700;font-size:13px;margin-bottom:4px;color:#F8FAFC;line-height:1.3}
+.tt{font-size:9.5px;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:5px;opacity:0.8}
+.tt-e{color:#64FFDA}.tt-a{color:#FFA726}.tt-s{color:#B388FF}.tt-g{color:#FF6B9D}.tt-d{color:#FFD54F}
 .td{color:#94A3B8;font-size:11px}
+.td span{color:#E2E8F0;font-weight:600}
 #ld{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#1E293B;
   font-size:11px;letter-spacing:4px;text-transform:uppercase;z-index:200}
 .sp{width:20px;height:20px;border:2px solid #0a1628;border-top-color:#64FFDA;
   border-radius:50%;animation:r .7s linear infinite;margin:0 auto 8px}
 @keyframes r{to{transform:rotate(360deg)}}
-#leg{position:absolute;bottom:20px;left:20px;display:flex;gap:18px;align-items:center;z-index:50}
-.li{display:flex;align-items:center;gap:6px;font-size:11px;color:#64748B;letter-spacing:0.3px}
-.ld{width:7px;height:7px;border-radius:50%}
-#hint{position:absolute;bottom:20px;right:20px;color:#334155;font-size:10px;letter-spacing:0.5px;z-index:50}
+#leg{position:absolute;bottom:16px;left:16px;display:flex;gap:16px;align-items:center;z-index:50}
+.li{display:flex;align-items:center;gap:5px;font-size:10px;color:#64748B;letter-spacing:0.3px}
+.ld{width:6px;height:6px;border-radius:50%}
+#hint{position:absolute;bottom:16px;right:16px;color:#334155;font-size:9px;letter-spacing:0.5px;z-index:50}
+#vig{position:fixed;inset:0;pointer-events:none;z-index:10;
+  background:radial-gradient(ellipse at center,transparent 55%,#030712 100%)}
 </style></head><body>
+<div id="vig"></div>
 <div id="tip"></div>
 <div id="ld"><div class="sp"></div>Cargando red</div>
 <div id="leg">
-  <div class="li"><div class="ld" style="background:#E0F7FA;box-shadow:0 0 8px #E0F7FA88"></div>Depositarias</div>
+  <div class="li"><div class="ld" style="background:#FFD54F;box-shadow:0 0 8px #FFD54F66"></div>Depositarias</div>
   <div class="li"><div class="ld" style="background:#00FFD0;box-shadow:0 0 6px #00FFD066"></div>SAV/EAF</div>
-  <div class="li"><div class="ld" style="background:#FF6B9D;box-shadow:0 0 6px #FF6B9D66"></div>Gestoras CR</div>
+  <div class="li"><div class="ld" style="background:#FF6B9D;box-shadow:0 0 6px #FF6B9D66"></div>Gestoras</div>
   <div class="li"><div class="ld" style="background:#B388FF;box-shadow:0 0 6px #B388FF66"></div>Socios</div>
   <div class="li"><div class="ld" style="background:#FFA726;box-shadow:0 0 6px #FFA72666"></div>Admins</div>
 </div>
@@ -457,7 +463,7 @@ scene.background=new THREE.Color(0x030712);
 scene.fog=new THREE.FogExp2(0x030712, 0.005);
 
 // ── Camera ──
-const camera=new THREE.PerspectiveCamera(60, W/H, 0.1, 600);
+const camera=new THREE.PerspectiveCamera(60, W/H, 0.1, 500);
 camera.position.set(D.core[0]+20, D.core[1]+20, D.core[2]+14);
 
 // ── Renderer ──
@@ -468,39 +474,49 @@ renderer.toneMapping=THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure=1.0;
 document.body.appendChild(renderer.domElement);
 
-// ── Lights — 3-point setup ──
+// ── 3-point lighting ──
 scene.add(new THREE.AmbientLight(0x0d1f3c, 0.5));
-const keyLight=new THREE.PointLight(0x64FFDA, 0.45, 160);
+const keyLight=new THREE.PointLight(0x64FFDA, 0.4, 200);
 keyLight.position.copy(camera.position); scene.add(keyLight);
-const fillLight=new THREE.PointLight(0xB388FF, 0.2, 120);
+const fillLight=new THREE.PointLight(0xB388FF, 0.18, 150);
 fillLight.position.set(D.core[0]-15, D.core[1]+15, D.core[2]+8); scene.add(fillLight);
-const rimLight=new THREE.PointLight(0xFFA726, 0.12, 100);
+const rimLight=new THREE.PointLight(0xFFD54F, 0.12, 120);
 rimLight.position.set(D.core[0]+10, D.core[1]-20, D.core[2]-5); scene.add(rimLight);
 
 // ── Controls ──
-const ctrl=new OrbitControls(camera,renderer.domElement);
+const ctrl=new OrbitControls(camera, renderer.domElement);
 ctrl.target.set(D.core[0], D.core[1], D.core[2]);
 ctrl.enableDamping=true; ctrl.dampingFactor=0.05;
-ctrl.autoRotate=true; ctrl.autoRotateSpeed=0.2;
-ctrl.maxDistance=160; ctrl.minDistance=3; ctrl.update();
+ctrl.autoRotate=true; ctrl.autoRotateSpeed=0.15;
+ctrl.maxDistance=200; ctrl.minDistance=3; ctrl.update();
 
 // ── Post-processing ──
 const composer=new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-composer.addPass(new UnrealBloomPass(new THREE.Vector2(W,H), 0.7, 0.5, 0.35));
+composer.addPass(new UnrealBloomPass(new THREE.Vector2(W,H), 0.6, 0.5, 0.4));
 composer.addPass(new OutputPass());
 
-// ── Edges — colored by connected node types ──
+// ── Edge colors by type ──
+const EC={
+  entity_admin: new THREE.Color(0x0a2828),
+  entity_socio: new THREE.Color(0x0a1828),
+  gestora_depositaria: new THREE.Color(0x2a1525),
+  fallback: new THREE.Color(0x0a1a1a)
+};
+function edgeColor(ta, tb){
+  if((ta==='entity'&&tb==='admin')||(ta==='admin'&&tb==='entity')) return EC.entity_admin;
+  if((ta==='entity'&&tb==='socio')||(ta==='socio'&&tb==='entity')) return EC.entity_socio;
+  if((ta==='gestora'&&tb==='depositaria')||(ta==='depositaria'&&tb==='gestora')) return EC.gestora_depositaria;
+  return EC.fallback;
+}
+
 const eP=new Float32Array(D.edges.length*6);
 const eC=new Float32Array(D.edges.length*6);
-const nodePos={};
-D.nodes.forEach(n=>{nodePos[n.n]={x:n.x,y:n.y,z:n.z,t:n.t}});
 for(let i=0;i<D.edges.length;i++){
   const e=D.edges[i];
   eP[i*6]=e.a[0]; eP[i*6+1]=e.a[1]; eP[i*6+2]=e.a[2];
   eP[i*6+3]=e.b[0]; eP[i*6+4]=e.b[1]; eP[i*6+5]=e.b[2];
-  // Subtle teal tint for all edges
-  const c=new THREE.Color(0x0a2e2e);
+  const c=edgeColor(e.ta, e.tb);
   eC[i*6]=c.r; eC[i*6+1]=c.g; eC[i*6+2]=c.b;
   eC[i*6+3]=c.r; eC[i*6+4]=c.g; eC[i*6+5]=c.b;
 }
@@ -508,16 +524,16 @@ const eGeo=new THREE.BufferGeometry();
 eGeo.setAttribute('position', new THREE.BufferAttribute(eP,3));
 eGeo.setAttribute('color', new THREE.BufferAttribute(eC,3));
 scene.add(new THREE.LineSegments(eGeo,
-  new THREE.LineBasicMaterial({vertexColors:true, transparent:true, opacity:0.55})));
+  new THREE.LineBasicMaterial({vertexColors:true, transparent:true, opacity:0.5})));
 
 // ── Nodes ──
 const sGeo=new THREE.IcosahedronGeometry(1,3);
 const types={
-  depositaria:{color:0xE0F7FA,emissive:0xE0F7FA,eI:0.5,sMin:0.25,sMax:0.55,label:'Depositaria',cls:'tt-d'},
-  entity:{color:0x00FFD0, emissive:0x00FFD0, eI:0.3, sMin:0.10, sMax:0.35, label:'Entidad SAV/EAF', cls:'tt-e'},
-  gestora:{color:0xFF6B9D,emissive:0xFF6B9D,eI:0.2,sMin:0.06,sMax:0.20,label:'Gestora',cls:'tt-g'},
-  admin: {color:0xFFA726, emissive:0xFFA726, eI:0.15, sMin:0.03, sMax:0.10, label:'Administrador', cls:'tt-a'},
-  socio: {color:0xB388FF, emissive:0xB388FF, eI:0.15, sMin:0.03, sMax:0.10, label:'Socio', cls:'tt-s'}
+  depositaria:{color:0xFFD54F,emissive:0xFFD54F,eI:0.35,sMin:0.25,sMax:0.50,label:'Depositaria',cls:'tt-d'},
+  entity:{color:0x00FFD0,emissive:0x00FFD0,eI:0.25,sMin:0.08,sMax:0.32,label:'Entidad SAV/EAF',cls:'tt-e'},
+  gestora:{color:0xFF6B9D,emissive:0xFF6B9D,eI:0.18,sMin:0.05,sMax:0.18,label:'Gestora',cls:'tt-g'},
+  admin:{color:0xFFA726,emissive:0xFFA726,eI:0.12,sMin:0.025,sMax:0.09,label:'Administrador',cls:'tt-a'},
+  socio:{color:0xB388FF,emissive:0xB388FF,eI:0.12,sMin:0.025,sMax:0.09,label:'Socio',cls:'tt-s'}
 };
 const mM={}, nM={}, dm=new THREE.Object3D();
 
@@ -527,7 +543,7 @@ for(const[type,cfg] of Object.entries(types)){
   nM[type]=nodes;
   const mat=new THREE.MeshStandardMaterial({
     color:cfg.color, emissive:cfg.emissive, emissiveIntensity:cfg.eI,
-    roughness:0.25, metalness:0.15
+    roughness:0.3, metalness:0.15
   });
   const mesh=new THREE.InstancedMesh(sGeo, mat, nodes.length);
   const mx=Math.max(...nodes.map(n=>n.d),1);
@@ -542,39 +558,26 @@ for(const[type,cfg] of Object.entries(types)){
   scene.add(mesh); mM[type]=mesh;
 }
 
-// ── Ambient dust particles ──
+// ── Depositaria pulsing ──
+let depMesh=mM['depositaria'];
+
+// ── Ambient dust ──
 const dN=3000, dPos=new Float32Array(dN*3), dCol=new Float32Array(dN*3);
-const dSizes=new Float32Array(dN);
 for(let i=0;i<dN;i++){
   dPos[i*3]=(Math.random()-0.5)*180;
   dPos[i*3+1]=(Math.random()-0.5)*180;
   dPos[i*3+2]=(Math.random()-0.5)*180;
-  const b=0.015+Math.random()*0.035;
+  const b=0.015+Math.random()*0.03;
   const hue=Math.random();
   if(hue<0.5){dCol[i*3]=b*0.4;dCol[i*3+1]=b;dCol[i*3+2]=b*0.85}
-  else if(hue<0.8){dCol[i*3]=b*0.6;dCol[i*3+1]=b*0.55;dCol[i*3+2]=b}
-  else{dCol[i*3]=b;dCol[i*3+1]=b*0.7;dCol[i*3+2]=b*0.3}
-  dSizes[i]=0.04+Math.random()*0.12;
+  else if(hue<0.8){dCol[i*3]=b*0.7;dCol[i*3+1]=b*0.5;dCol[i*3+2]=b}
+  else{dCol[i*3]=b;dCol[i*3+1]=b*0.85;dCol[i*3+2]=b*0.3}
 }
 const dGeo=new THREE.BufferGeometry();
 dGeo.setAttribute('position',new THREE.BufferAttribute(dPos,3));
 dGeo.setAttribute('color',new THREE.BufferAttribute(dCol,3));
 scene.add(new THREE.Points(dGeo,
-  new THREE.PointsMaterial({size:0.1,vertexColors:true,transparent:true,opacity:0.5,sizeAttenuation:true})));
-
-// ── Subtle ground ring at the core ──
-const ringGeo=new THREE.RingGeometry(15, 15.06, 128);
-const ringMat=new THREE.MeshBasicMaterial({color:0x0a2a2a, transparent:true, opacity:0.15, side:THREE.DoubleSide});
-const ring=new THREE.Mesh(ringGeo, ringMat);
-ring.position.set(D.core[0], D.core[1], D.core[2]-2);
-ring.rotation.x=Math.PI/2;
-scene.add(ring);
-const ring2Geo=new THREE.RingGeometry(30, 30.04, 128);
-const ring2=new THREE.Mesh(ring2Geo, ringMat.clone());
-ring2.material.opacity=0.08;
-ring2.position.set(D.core[0], D.core[1], D.core[2]-2);
-ring2.rotation.x=Math.PI/2;
-scene.add(ring2);
+  new THREE.PointsMaterial({size:0.09,vertexColors:true,transparent:true,opacity:0.45,sizeAttenuation:true})));
 
 // ── Tooltip ──
 const tip=document.getElementById('tip');
@@ -595,10 +598,14 @@ function hov(){
     const its=rc.intersectObject(mesh);
     if(its.length){
       const nd=nM[type][its[0].instanceId];
-      tip.innerHTML='<div class="tn">'+nd.n+'</div><div class="tt '+types[type].cls+'">'+types[type].label+'</div><div class="td">'+nd.d+' conexiones</div>';
+      const cfg=types[type];
+      let extra='<div class="td"><span>'+nd.d+'</span> conexiones</div>';
+      if(type==='gestora'&&nd.nf) extra+='<div class="td"><span>'+nd.nf+'</span> fondos gestionados</div>';
+      if(type==='depositaria') extra+='<div class="td"><span>'+nd.d+'</span> gestoras vinculadas</div>';
+      tip.innerHTML='<div class="tn">'+nd.n+'</div><div class="tt '+cfg.cls+'">'+cfg.label+'</div>'+extra;
       tip.style.display='block';
-      tip.style.left=Math.min(mx2+16,W-330)+'px';
-      tip.style.top=Math.max(my2-60,8)+'px';
+      tip.style.left=Math.min(mx2+16,W-350)+'px';
+      tip.style.top=Math.max(my2-70,8)+'px';
       hit=true; renderer.domElement.style.cursor='pointer'; break;
     }
   }
@@ -611,15 +618,24 @@ document.getElementById('ld').style.display='none';
 let t=0;
 function animate(){
   requestAnimationFrame(animate);
-  t+=0.005;
+  t+=0.008;
   ctrl.update();
   keyLight.position.copy(camera.position);
-  // Subtle dust drift
+
+  // Depositaria pulse
+  if(depMesh){
+    const pulse=1.0+Math.sin(t*1.5)*0.06;
+    depMesh.material.emissiveIntensity=0.35*pulse;
+  }
+
+  // Dust drift
   const dp=dGeo.attributes.position.array;
-  for(let i=0;i<dN;i++){
-    dp[i*3+1]+=Math.sin(t+i*0.01)*0.003;
+  for(let i=0;i<100;i++){
+    const j=((Math.floor(t*20)+i)%dN)*3;
+    dp[j+1]+=Math.sin(t+i*0.1)*0.002;
   }
   dGeo.attributes.position.needsUpdate=true;
+
   hov();
   composer.render();
 }
@@ -631,6 +647,7 @@ window.addEventListener('resize',()=>{
   renderer.setSize(W,H); composer.setSize(W,H);
 });
 </script></body></html>'''.replace('"__GRAPH_DATA__"', graph_json)
+
 
     _stc.html(threejs_html, height=850)
 
