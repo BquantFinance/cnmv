@@ -112,7 +112,7 @@ div[data-testid="stExpander"]{background:rgba(10,15,26,.5)!important;border:1px 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @st.cache_data
 def load_entities():
-    df = pd.read_csv("data/cnmv_entities_complete.csv", encoding="utf-8-sig")
+    df = pd.read_csv("cnmv_entities_complete.csv", encoding="utf-8-sig")
     df["direccion_provincia"] = df["direccion_provincia"].str.strip().str.upper()
     cap = df["capital_social"].astype(str).str.replace(".","",regex=False).str.replace(",",".",regex=False).str.strip()
     df["cap_num"] = pd.to_numeric(cap, errors="coerce")
