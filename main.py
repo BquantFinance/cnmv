@@ -304,7 +304,7 @@ if page == "🕸️  Red de Poder":
 
     st.markdown('<div class="nleg"><div class="nleg-i"><div class="nleg-d" style="background:#0FF0B3"></div> Entidades</div><div class="nleg-i"><div class="nleg-d" style="background:#818CF8"></div> Socios / Accionistas</div><div class="nleg-i"><div class="nleg-d" style="background:#FFBE0B"></div> Administradores</div></div>', unsafe_allow_html=True)
 
-    tab1, tab2, tab3 = st.tabs(["🏛️ Explorador de Red", "🛤️ Camino más Corto", "🔗 Conexiones Cruzadas"])
+    tab1, tab2, tab3 = st.tabs(["🏛️ Explorador de Red", "🔗 Entidades Conectadas", "👥 Conexiones Cruzadas"])
 
     # ─── TAB 1: EGO NETWORK ───
     with tab1:
@@ -366,109 +366,115 @@ if page == "🕸️  Red de Poder":
             else:
                 st.info("Esta entidad no tiene conexiones en la red.")
 
-    # ─── TAB 2: SHORTEST PATH ───
+    # ─── TAB 2: CONNECTIONS MAP ───
     with tab2:
-        sec("Camino más Corto entre Dos Nodos", "🛤️")
-        ibox("Descubre cómo se conectan dos entidades cualesquiera a través de administradores y socios compartidos. <b>¿Cuántos pasos separan a dos empresas?</b>")
+        sec("Entidades Conectadas", "🛤️")
+        ibox("Estas entidades están <b>conectadas entre sí</b> a través de personas que comparten — un administrador o socio que aparece en ambas. Cada conexión revela un vínculo real entre empresas del ecosistema.")
 
-        all_nodes_sorted = sorted(G.nodes())
-        entity_nodes = sorted([n for n,d in G.nodes(data=True) if d.get("nt") == "entity"])
+        # Pre-compute all entity-to-entity connections
+        @st.cache_data
+        def find_all_connections(_E_names):
+            entity_nodes = [n for n,d in G.nodes(data=True) if d.get("nt") == "entity"]
+            import itertools
+            connections = []
+            for a, b in itertools.combinations(entity_nodes, 2):
+                try:
+                    path = nx.shortest_path(G, a, b)
+                    if len(path) == 3:  # entity -> person -> entity
+                        mid = path[1]
+                        mid_data = G.nodes[mid]
+                        mid_type = mid_data.get("nt","")
+                        ed1 = G.get_edge_data(a, mid) or {}
+                        ed2 = G.get_edge_data(mid, b) or {}
+                        cargo1 = ed1.get("cargo","") if ed1.get("rel") == "admin" else ""
+                        cargo2 = ed2.get("cargo","") if ed2.get("rel") == "admin" else ""
+                        pct1 = ed1.get("pct") if ed1.get("rel") == "socio" else None
+                        pct2 = ed2.get("pct") if ed2.get("rel") == "socio" else None
+                        connections.append({
+                            "ent_a": a, "ent_b": b, "via": mid, "via_type": mid_type,
+                            "cargo_a": cargo1, "cargo_b": cargo2, "pct_a": pct1, "pct_b": pct2,
+                        })
+                except nx.NetworkXNoPath:
+                    pass
+            return connections
 
-        cp1, cp2 = st.columns(2)
-        with cp1:
-            node_a = st.selectbox("Nodo de origen", entity_nodes, index=0, key="path_a")
-        with cp2:
-            # Default to a different entity
-            default_b = min(1, len(entity_nodes)-1)
-            node_b = st.selectbox("Nodo de destino", entity_nodes, index=default_b, key="path_b")
+        connections = find_all_connections(tuple(E["nombre"].tolist()))
 
-        if node_a and node_b and node_a != node_b:
-            try:
-                path = nx.shortest_path(G, node_a, node_b)
-                st.success(f"✅ Camino encontrado — **{len(path)-1} pasos** conectan estas entidades")
+        st.markdown(f'<div class="statbox" style="margin:20px 0"><div class="sv">{len(connections)}</div><div class="sl">Conexiones detectadas entre entidades reguladas</div></div>', unsafe_allow_html=True)
 
-                # Build subgraph with path + neighbors of path nodes
-                path_set = set(path)
-                extended = set(path)
-                for n in path:
-                    for nb in G.neighbors(n):
-                        extended.add(nb)
-                sub = G.subgraph(extended).copy()
-                pos = nx.spring_layout(sub, k=3, iterations=50, seed=42)
+        # Show as rich cards
+        for i, conn in enumerate(connections):
+            via_icon = "👤" if conn["via_type"] == "admin" else "💼"
+            via_label = "Administrador" if conn["via_type"] == "admin" else "Socio"
 
-                # Edges
-                ex, ey, ec = [], [], []
-                for u, v in sub.edges():
-                    x0, y0 = pos[u]; x1, y1 = pos[v]
-                    is_path_edge = u in path_set and v in path_set and abs(path.index(u) - path.index(v)) == 1 if u in path and v in path else False
-                    ex.extend([x0, x1, None]); ey.extend([y0, y1, None])
+            # Get entity types
+            type_a = E[E["nombre"]==conn["ent_a"]]["tipo_entidad"].values
+            type_b = E[E["nombre"]==conn["ent_b"]]["tipo_entidad"].values
+            badge_a = f'<span class="ebadge {"ebadge-s" if len(type_a) and type_a[0]=="SAV" else "ebadge-e"}" style="font-size:.6rem;padding:3px 10px">{"SAV" if len(type_a) and type_a[0]=="SAV" else "EAF"}</span>'
+            badge_b = f'<span class="ebadge {"ebadge-s" if len(type_b) and type_b[0]=="SAV" else "ebadge-e"}" style="font-size:.6rem;padding:3px 10px">{"SAV" if len(type_b) and type_b[0]=="SAV" else "EAF"}</span>'
 
-                traces = [go.Scatter(x=ex, y=ey, mode="lines",
-                    line=dict(width=0.4, color="rgba(148,163,184,0.08)"),
-                    hoverinfo="none", showlegend=False)]
+            # Role details
+            detail_a = ""
+            if conn["cargo_a"]: detail_a = f'<span style="color:#475569;font-size:.72rem"> · {conn["cargo_a"]}</span>'
+            elif conn["pct_a"]: detail_a = f'<span style="color:#FFBE0B;font-size:.72rem"> · {conn["pct_a"]:.1f}%</span>'
+            detail_b = ""
+            if conn["cargo_b"]: detail_b = f'<span style="color:#475569;font-size:.72rem"> · {conn["cargo_b"]}</span>'
+            elif conn["pct_b"]: detail_b = f'<span style="color:#FFBE0B;font-size:.72rem"> · {conn["pct_b"]:.1f}%</span>'
 
-                # Path edges highlighted
-                pex, pey = [], []
-                for i in range(len(path)-1):
-                    x0, y0 = pos[path[i]]; x1, y1 = pos[path[i+1]]
-                    pex.extend([x0, x1, None]); pey.extend([y0, y1, None])
-                traces.append(go.Scatter(x=pex, y=pey, mode="lines",
-                    line=dict(width=3, color="#0FF0B3"), hoverinfo="none",
-                    showlegend=True, name="Camino"))
+            st.markdown(f"""
+            <div class="ecard" style="padding:20px 24px;margin-bottom:10px">
+                <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:16px">
+                    <div>
+                        <div style="font-family:Outfit;font-size:.95rem;font-weight:700;color:#F8FAFC;margin-bottom:5px">{conn["ent_a"][:45]}</div>
+                        <div>{badge_a}{detail_a}</div>
+                    </div>
+                    <div style="text-align:center;padding:10px 16px;background:rgba(15,240,179,.04);border-radius:12px;border:1px solid rgba(15,240,179,.1)">
+                        <div style="font-size:1.2rem;margin-bottom:4px">🔗</div>
+                        <div style="font-size:.72rem;color:#0FF0B3;font-weight:600">{via_icon} {conn["via"][:25]}</div>
+                        <div style="font-size:.6rem;color:#475569;margin-top:2px">{via_label} en ambas</div>
+                    </div>
+                    <div style="text-align:right">
+                        <div style="font-family:Outfit;font-size:.95rem;font-weight:700;color:#F8FAFC;margin-bottom:5px">{conn["ent_b"][:45]}</div>
+                        <div>{badge_b}{detail_b}</div>
+                    </div>
+                </div>
+            </div>""", unsafe_allow_html=True)
 
-                # Nodes
-                cfg = {"entity":("#0FF0B3","diamond",14),"socio":("#818CF8","circle",8),"admin":("#FFBE0B","circle",7)}
-                for nt, (clr, sym, sz) in cfg.items():
-                    nodes = [n for n,d in sub.nodes(data=True) if d.get("nt")==nt]
-                    if not nodes: continue
-                    x = [pos[n][0] for n in nodes]
-                    y = [pos[n][1] for n in nodes]
-                    sizes = [sz+14 if n in path_set else sz for n in nodes]
-                    opac = [1.0 if n in path_set else 0.4 for n in nodes]
-                    colors = ["#F8FAFC" if n in path_set else clr for n in nodes]
-                    outlines = [clr if n in path_set else "rgba(255,255,255,.06)" for n in nodes]
-                    traces.append(go.Scatter(x=x,y=y,mode="markers",showlegend=False,
-                        marker=dict(size=sizes,color=colors,symbol=sym,opacity=opac,
-                            line=dict(width=[3 if n in path_set else 1 for n in nodes],color=outlines)),
-                        text=[f"<b>{n}</b>" for n in nodes],hoverinfo="text"))
+        gdiv()
 
-                # Path labels
-                for i, n in enumerate(path):
-                    traces.append(go.Scatter(x=[pos[n][0]], y=[pos[n][1]+0.08],
-                        mode="text", text=[f"<b>{i+1}. {n[:30]}</b>"],
-                        textfont=dict(size=10, color="#F8FAFC", family="Outfit"),
-                        showlegend=False, hoverinfo="none"))
+        # ── CUSTOM SEARCH ──
+        with st.expander("🔍 Buscar conexión entre dos entidades específicas"):
+            entity_nodes = sorted([n for n,d in G.nodes(data=True) if d.get("nt") == "entity"])
+            cp1, cp2 = st.columns(2)
+            with cp1:
+                # Default to a connected pair
+                default_a_name = connections[0]["ent_a"] if connections else entity_nodes[0]
+                default_a = entity_nodes.index(default_a_name) if default_a_name in entity_nodes else 0
+                node_a = st.selectbox("Entidad A", entity_nodes, index=default_a, key="path_a")
+            with cp2:
+                default_b_name = connections[0]["ent_b"] if connections else entity_nodes[min(1, len(entity_nodes)-1)]
+                default_b = entity_nodes.index(default_b_name) if default_b_name in entity_nodes else min(1, len(entity_nodes)-1)
+                node_b = st.selectbox("Entidad B", entity_nodes, index=default_b, key="path_b")
 
-                fig = go.Figure(data=traces)
-                fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                    font=dict(color="#94A3B8"), showlegend=True,
-                    xaxis=dict(visible=False), yaxis=dict(visible=False),
-                    height=600, margin=dict(l=0,r=0,t=10,b=0),
-                    legend=dict(bgcolor="rgba(10,15,26,.85)", bordercolor="rgba(255,255,255,.04)",
-                        borderwidth=1, font=dict(size=11), x=.01, y=.99),
-                    hoverlabel=dict(bgcolor="#0a0f1a", font_size=11, bordercolor="rgba(15,240,179,.25)"))
-                st.plotly_chart(fig, use_container_width=True)
-
-                # Path detail
-                sec("Detalle del Camino", "📋")
-                for i, n in enumerate(path):
-                    nd = G.nodes[n]
-                    tipo_label = {"entity":"🏛️ Entidad", "admin":"👤 Administrador", "socio":"💼 Socio"}.get(nd.get("nt"),"")
-                    if i < len(path)-1:
-                        ed = G.get_edge_data(path[i], path[i+1])
-                        rel = ed.get("rel","") if ed else ""
-                        extra = ""
-                        if rel == "admin" and ed.get("cargo"): extra = f" — {ed['cargo']}"
-                        elif rel == "socio" and ed.get("pct"): extra = f" — {ed['pct']:.1f}%"
-                        arrow = f" → <span style='color:#475569;font-size:.75rem'>{rel}{extra}</span>"
-                    else:
-                        arrow = ""
-                    st.markdown(f"**{i+1}.** {tipo_label} **{n}**{arrow}", unsafe_allow_html=True)
-
-            except nx.NetworkXNoPath:
-                st.warning("⚠️ No existe camino entre estas dos entidades — pertenecen a componentes desconectados de la red.")
-            except Exception as ex_err:
-                st.error(f"Error: {ex_err}")
+            if node_a and node_b and node_a != node_b:
+                try:
+                    path = nx.shortest_path(G, node_a, node_b)
+                    st.success(f"✅ Conectadas en **{len(path)-1} pasos**")
+                    for i, n in enumerate(path):
+                        nd = G.nodes[n]
+                        tipo_label = {"entity":"🏛️", "admin":"👤", "socio":"💼"}.get(nd.get("nt"),"")
+                        if i < len(path)-1:
+                            ed = G.get_edge_data(path[i], path[i+1])
+                            rel = ed.get("rel","") if ed else ""
+                            extra = ""
+                            if rel == "admin" and ed.get("cargo"): extra = f" ({ed['cargo']})"
+                            elif rel == "socio" and ed.get("pct"): extra = f" ({ed['pct']:.1f}%)"
+                            arrow = f" → *{rel}{extra}*"
+                        else:
+                            arrow = ""
+                        st.markdown(f"**{i+1}.** {tipo_label} **{n}**{arrow}", unsafe_allow_html=True)
+                except nx.NetworkXNoPath:
+                    st.warning("⚠️ No existe conexión — pertenecen a componentes desconectados de la red.")
 
     # ─── TAB 3: CROSS CONNECTIONS ───
     with tab3:
@@ -596,8 +602,7 @@ elif page == "🔍  Buscador Universal":
     elif query:
         st.caption("Escribe al menos 2 caracteres para buscar.")
     else:
-        # Show quick stats when no search
-        sec("Estadísticas del Ecosistema", "📊")
+        # ── DISCOVERY PANEL ──
         kpi_row([
             (str(len(E)), "Entidades SAV+EAF", "🏛️", "c1"),
             (f"{F['entity_name'].nunique():,}", "Fondos Capital Riesgo", "💰", "c3"),
@@ -605,7 +610,102 @@ elif page == "🔍  Buscador Universal":
             (str(len(socios_map)), "Socios / Accionistas", "💼", "c4"),
             (str(len(cross_people)), "Personas Multi-Entidad", "⚡", "c5"),
         ])
-        ibox("Escribe cualquier nombre en el buscador para explorar el ecosistema. Puedes buscar <b>personas</b> (administradores, socios), <b>entidades</b> (SAV, EAF), <b>fondos de capital riesgo</b>, <b>gestoras</b>, o <b>ISINs</b>.")
+
+        # ── HIGHLIGHTED FINDINGS ──
+        sec("🔥 Hallazgos Destacados", "⚡")
+        ibox("Datos llamativos detectados automáticamente en el ecosistema — haz clic en las pestañas para explorar por categoría.")
+
+        # Build highlights
+        cross_sorted = sorted(cross_people.items(), key=lambda x: len(set(e[0] for e in x[1])), reverse=True)
+        top_cross = cross_sorted[:3]
+
+        dep_funds = F.drop_duplicates("entity_name").groupby("depositaria_nombre").size()
+        dep_top = dep_funds.sort_values(ascending=False).head(3)
+        dep_total = dep_funds.sum()
+
+        gest_top = F.drop_duplicates("entity_name").groupby("gestora_nombre").size().nlargest(3)
+
+        hl_html = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin:16px 0">'
+
+        # Card 1 - Multi-entity people
+        ppl_items = ""
+        for name, entries in top_cross:
+            n_ents = len(set(e[0] for e in entries))
+            ppl_items += f'<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.03);font-size:.8rem"><span style="color:#E2E8F0">{name[:28]}</span><span style="color:#FFBE0B;font-weight:600">{n_ents} ent.</span></div>'
+        hl_html += f'<div class="ecard" style="padding:22px"><div style="font-size:.65rem;color:#FB7185;font-family:IBM Plex Mono;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:600">👥 Personas más conectadas</div><div style="font-size:.78rem;color:#475569;margin-bottom:14px">Administradores en múltiples entidades</div>{ppl_items}</div>'
+
+        # Card 2 - Depositaria concentration
+        dep_items = ""
+        for name, count in dep_top.items():
+            pct = count / dep_total * 100
+            dep_items += f'<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.03);font-size:.8rem"><span style="color:#E2E8F0">{name[:28]}</span><span style="color:#0FF0B3;font-weight:600">{pct:.0f}%</span></div>'
+        hl_html += f'<div class="ecard" style="padding:22px"><div style="font-size:.65rem;color:#0FF0B3;font-family:IBM Plex Mono;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:600">🏦 Concentración Depositarias</div><div style="font-size:.78rem;color:#475569;margin-bottom:14px">Solo 8 depositarias custodian todo</div>{dep_items}</div>'
+
+        # Card 3 - Top gestoras
+        gest_items = ""
+        for name, count in gest_top.items():
+            gest_items += f'<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.03);font-size:.8rem"><span style="color:#E2E8F0">{name[:28]}</span><span style="color:#818CF8;font-weight:600">{count} fondos</span></div>'
+        hl_html += f'<div class="ecard" style="padding:22px"><div style="font-size:.65rem;color:#818CF8;font-family:IBM Plex Mono;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:600">🏢 Mayores Gestoras CR</div><div style="font-size:.78rem;color:#475569;margin-bottom:14px">Las 3 gestoras con más fondos</div>{gest_items}</div>'
+        hl_html += '</div>'
+        st.markdown(hl_html, unsafe_allow_html=True)
+
+        gdiv()
+
+        # ── BROWSABLE DIRECTORIES ──
+        sec("Directorio Completo", "📂")
+
+        dtab1, dtab2, dtab3, dtab4 = st.tabs(["🏛️ Entidades SAV & EAF", "👤 Personas (A-Z)", "💰 Gestoras CR", "🏦 Fondos CR"])
+
+        with dtab1:
+            letter = st.select_slider("Filtrar por letra", options=["Todas"] + list("ABCDEFGHIJKLMNOPQRSTUVWXYZ"), value="Todas", key="ent_letter")
+            ent_dir = E[["nombre","tipo_entidad","numero_registro","direccion_provincia","ultimo_auditor"]].copy()
+            ent_dir.columns = ["Entidad","Tipo","Nº Registro","Provincia","Auditor"]
+            ent_dir = ent_dir.sort_values("Entidad")
+            if letter != "Todas":
+                ent_dir = ent_dir[ent_dir["Entidad"].str.upper().str.startswith(letter)]
+            st.caption(f"{len(ent_dir)} entidades" + (f" que empiezan por '{letter}'" if letter != "Todas" else ""))
+            st.dataframe(ent_dir.reset_index(drop=True), use_container_width=True, height=420)
+
+        with dtab2:
+            # Show people directory with their entity connections
+            letter_p = st.select_slider("Filtrar por letra", options=["Todas"] + list("ABCDEFGHIJKLMNOPQRSTUVWXYZ"), value="Todas", key="ppl_letter")
+            ppl_rows = []
+            for person, entries in sorted(people_map.items()):
+                unique_ents = list(set(e[0] for e in entries))
+                cargos = list(set(e[1] for e in entries if e[1] != "N/D"))
+                ppl_rows.append({
+                    "Persona": person,
+                    "Nº Entidades": len(unique_ents),
+                    "Entidades": " · ".join(e[:35] for e in unique_ents),
+                    "Cargos": ", ".join(cargos[:3]) if cargos else "—",
+                })
+            ppl_df = pd.DataFrame(ppl_rows).sort_values("Persona")
+            if letter_p != "Todas":
+                ppl_df = ppl_df[ppl_df["Persona"].str.upper().str.startswith(letter_p)]
+            # Highlight multi-entity
+            multi_mask = ppl_df["Nº Entidades"] > 1
+            st.caption(f"{len(ppl_df)} personas" + (f" que empiezan por '{letter_p}'" if letter_p != "Todas" else "") + f" · {multi_mask.sum()} en múltiples entidades")
+            st.dataframe(ppl_df.reset_index(drop=True), use_container_width=True, height=420,
+                column_config={"Nº Entidades": st.column_config.NumberColumn("Nº Ent.", width="small")})
+
+        with dtab3:
+            gest_df = F.drop_duplicates("entity_name").groupby("gestora_nombre").agg(
+                Fondos=("entity_name","count"),
+                Tipos=("entity_type", lambda x: ", ".join(sorted(x.unique())[:2])),
+            ).sort_values("Fondos", ascending=False).reset_index()
+            gest_df.columns = ["Gestora","Fondos","Tipos de Vehículo"]
+            st.caption(f"{len(gest_df)} gestoras activas")
+            st.dataframe(gest_df, use_container_width=True, height=420)
+
+        with dtab4:
+            letter_f = st.select_slider("Filtrar por letra", options=["Todas"] + list("ABCDEFGHIJKLMNOPQRSTUVWXYZ"), value="Todas", key="fund_letter")
+            fund_dir = F.drop_duplicates("entity_name")[["entity_type","entity_name","gestora_nombre","depositaria_nombre","fecha_registro"]].copy()
+            fund_dir.columns = ["Tipo","Fondo","Gestora","Depositaria","Fecha Registro"]
+            fund_dir = fund_dir.sort_values("Fondo")
+            if letter_f != "Todas":
+                fund_dir = fund_dir[fund_dir["Fondo"].str.upper().str.startswith(letter_f)]
+            st.caption(f"{len(fund_dir)} fondos/sociedades" + (f" que empiezan por '{letter_f}'" if letter_f != "Todas" else ""))
+            st.dataframe(fund_dir.reset_index(drop=True), use_container_width=True, height=420)
 
     foot()
 
