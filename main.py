@@ -294,14 +294,14 @@ with st.sidebar:
 # ║  RED DE PODER (LANDING)                                       ║
 # ╚═══════════════════════════════════════════════════════════════╝
 if page == "🕸️  Red de Poder":
-    st.markdown('<div class="hero"><div class="hero-title">Red de <span class="em">Poder</span> Financiero</div><div class="hero-sub">El mapa completo de relaciones entre entidades, administradores y socios del ecosistema de valores español.</div></div>', unsafe_allow_html=True)
+    st.markdown('<div class="hero"><div class="hero-title">Red de <span class="em">Poder</span> Financiero</div><div class="hero-sub">El mapa tridimensional de relaciones entre entidades, administradores y socios del ecosistema de valores español. Arrastra para rotar.</div></div>', unsafe_allow_html=True)
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # FULL NETWORK GRAPH — HERO VISUAL
+    # 3D NETWORK GRAPH — HERO VISUAL
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     @st.cache_data
-    def compute_organic_layout(_node_list, _edge_list):
-        """Organic spiral layout — each component laid out separately, then packed in a spiral."""
+    def compute_3d_layout(_node_list, _edge_list):
+        """3D spherical spiral layout — organic distribution in 3D space."""
         H = nx.Graph()
         for n, nt, et in _node_list:
             H.add_node(n, nt=nt, et=et)
@@ -312,103 +312,120 @@ if page == "🕸️  Red de Poder":
         pos = {}
         rng = np.random.RandomState(42)
         golden_angle = np.pi * (3 - np.sqrt(5))
+        n_comps = len(comps)
 
         for idx, comp in enumerate(comps):
             sub = H.subgraph(comp)
             n_nodes = len(comp)
-            comp_radius = max(0.8, np.sqrt(n_nodes) * 0.55)
+            comp_radius = max(0.5, np.sqrt(n_nodes) * 0.4)
 
-            # Spiral placement — larger clusters near center
-            t = idx * 0.65
-            spiral_r = 2.2 * np.sqrt(t + 1)
-            angle = golden_angle * idx + rng.uniform(-0.25, 0.25)
-            cx = spiral_r * np.cos(angle)
-            cy = spiral_r * np.sin(angle)
+            # Spherical spiral distribution
+            t = idx * 0.6
+            spiral_r = 1.8 * np.sqrt(t + 1)
+            phi = golden_angle * idx
+            theta = np.arccos(1 - 2 * (idx / max(n_comps - 1, 1)))
+
+            cx = spiral_r * np.sin(theta) * np.cos(phi)
+            cy = spiral_r * np.sin(theta) * np.sin(phi)
+            cz = spiral_r * np.cos(theta) * 0.55
 
             if n_nodes == 1:
                 n = list(comp)[0]
-                pos[n] = (cx + rng.uniform(-0.15, 0.15), cy + rng.uniform(-0.15, 0.15))
+                pos[n] = (cx + rng.uniform(-0.1, 0.1), cy + rng.uniform(-0.1, 0.1), cz + rng.uniform(-0.1, 0.1))
             else:
-                local = nx.spring_layout(sub, k=1.3, iterations=45, seed=42)
-                for n, (lx, ly) in local.items():
-                    pos[n] = (lx * comp_radius + cx, ly * comp_radius + cy)
+                local = nx.spring_layout(sub, k=1.2, iterations=40, seed=42, dim=3)
+                for n, coords in local.items():
+                    pos[n] = (
+                        coords[0] * comp_radius + cx,
+                        coords[1] * comp_radius + cy,
+                        coords[2] * comp_radius * 0.5 + cz,
+                    )
         return pos
 
     node_list = tuple((n, d.get("nt",""), d.get("et","")) for n, d in G.nodes(data=True))
     edge_list = tuple((u, v) for u, v in G.edges())
-    pos = compute_organic_layout(node_list, edge_list)
+    pos3d = compute_3d_layout(node_list, edge_list)
 
-    # Edges
-    ex, ey = [], []
+    # 3D Edges
+    ex, ey, ez = [], [], []
     for u, v in G.edges():
-        if u in pos and v in pos:
-            x0, y0 = pos[u]; x1, y1 = pos[v]
-            ex.extend([x0, x1, None]); ey.extend([y0, y1, None])
+        if u in pos3d and v in pos3d:
+            x0, y0, z0 = pos3d[u]; x1, y1, z1 = pos3d[v]
+            ex.extend([x0, x1, None]); ey.extend([y0, y1, None]); ez.extend([z0, z1, None])
 
-    traces = [go.Scatter(x=ex, y=ey, mode="lines",
-        line=dict(width=0.35, color="rgba(100,116,139,0.09)"),
+    traces = [go.Scatter3d(x=ex, y=ey, z=ez, mode="lines",
+        line=dict(width=1, color="rgba(100,116,139,0.08)"),
         hoverinfo="none", showlegend=False)]
 
-    # Nodes by type
+    # 3D Nodes
     cfg = {
-        "entity": ("#0FF0B3", 12, "Entidades"),
-        "socio":  ("#818CF8", 5, "Socios"),
-        "admin":  ("#FFBE0B", 4, "Administradores"),
+        "entity": ("#0FF0B3", 8, "🏛️ Entidades"),
+        "socio":  ("#818CF8", 3, "💼 Socios"),
+        "admin":  ("#FFBE0B", 2.5, "👤 Administradores"),
     }
     for nt, (base_color, base_sz, label) in cfg.items():
-        nodes = [n for n in G.nodes() if G.nodes[n].get("nt") == nt and n in pos]
+        nodes = [n for n in G.nodes() if G.nodes[n].get("nt") == nt and n in pos3d]
         if not nodes: continue
-        x = [pos[n][0] for n in nodes]
-        y = [pos[n][1] for n in nodes]
+        x = [pos3d[n][0] for n in nodes]
+        y = [pos3d[n][1] for n in nodes]
+        z = [pos3d[n][2] for n in nodes]
 
         degrees = [G.degree(n) for n in nodes]
         max_deg = max(degrees) if degrees else 1
+
         if nt == "entity":
-            sizes = [max(10, min(44, 10 + (d / max(max_deg, 1)) * 34)) for d in degrees]
-            opac = [max(0.7, min(1.0, 0.7 + d / max(max_deg, 1) * 0.3)) for d in degrees]
+            sizes = [max(5, min(28, 5 + (d / max(max_deg, 1)) * 23)) for d in degrees]
+            opac = [max(0.75, min(1.0, 0.75 + d / max(max_deg, 1) * 0.25)) for d in degrees]
         else:
-            sizes = [max(3, min(15, base_sz + (d / max(max_deg, 1)) * 10)) for d in degrees]
-            opac = [max(0.35, min(0.8, 0.35 + d / max(max_deg, 1) * 0.45)) for d in degrees]
+            sizes = [max(2, min(10, base_sz + (d / max(max_deg, 1)) * 7)) for d in degrees]
+            opac = [max(0.4, min(0.85, 0.4 + d / max(max_deg, 1) * 0.45)) for d in degrees]
 
         hovers = []
         for n, deg in zip(nodes, degrees):
             nbs = list(G.neighbors(n))[:6]
             nb_lines = "<br>".join(f"· {nb[:35]}" for nb in nbs)
-            if G.degree(n) > 6: nb_lines += f"<br>· ...+{G.degree(n)-6} más"
-            hovers.append(f"<b>{n}</b><br><span style='color:#475569'>{label}</span><br>Conexiones: {deg}<br><br>{nb_lines}")
+            if G.degree(n) > 6: nb_lines += f"<br>...+{G.degree(n)-6} más"
+            hovers.append(f"<b>{n}</b><br>{label}<br>Conexiones: {deg}<br><br>{nb_lines}")
 
-        traces.append(go.Scatter(x=x, y=y, mode="markers", name=label,
+        traces.append(go.Scatter3d(x=x, y=y, z=z, mode="markers", name=label,
             marker=dict(size=sizes, color=base_color, opacity=opac,
-                line=dict(width=0.5, color="rgba(255,255,255,0.05)")),
+                line=dict(width=0.3, color="rgba(255,255,255,0.08)")),
             text=hovers, hoverinfo="text"))
 
-    # Labels — top 10 entities only
-    entity_degs = sorted([(n, G.degree(n)) for n in G.nodes() if G.nodes[n].get("nt")=="entity" and n in pos], key=lambda x: x[1], reverse=True)
-    if entity_degs:
-        top = entity_degs[:10]
-        traces.append(go.Scatter(
-            x=[pos[n][0] for n,_ in top],
-            y=[pos[n][1] + 0.45 for n,_ in top],
-            mode="text", text=[n[:20] for n,_ in top],
-            textfont=dict(size=7.5, color="rgba(241,245,249,0.45)", family="Outfit"),
-            showlegend=False, hoverinfo="none"))
-
     fig = go.Figure(data=traces)
+
+    # Camera: slight angle for dramatic perspective
+    camera = dict(
+        eye=dict(x=1.6, y=1.6, z=0.8),
+        center=dict(x=0, y=0, z=-0.1),
+        up=dict(x=0, y=0, z=1),
+    )
+
     fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        scene=dict(
+            bgcolor="rgba(0,0,0,0)",
+            xaxis=dict(visible=False, showbackground=False),
+            yaxis=dict(visible=False, showbackground=False),
+            zaxis=dict(visible=False, showbackground=False),
+            camera=camera,
+            aspectmode="data",
+        ),
         font=dict(color="#94A3B8", family="Plus Jakarta Sans"),
-        xaxis=dict(showgrid=False, zeroline=False, visible=False),
-        yaxis=dict(showgrid=False, zeroline=False, visible=False, scaleanchor="x"),
-        height=780, margin=dict(l=0, r=0, t=0, b=0),
-        showlegend=False,
+        height=820, margin=dict(l=0, r=0, t=0, b=0),
+        showlegend=True,
+        legend=dict(
+            bgcolor="rgba(10,15,26,0.85)", bordercolor="rgba(255,255,255,.04)",
+            borderwidth=1, font=dict(size=11, color="#94A3B8"),
+            x=0.01, y=0.98, itemsizing="constant",
+        ),
         hoverlabel=dict(bgcolor="#0a0f1a", font_size=11, font_family="Plus Jakarta Sans",
             bordercolor="rgba(15,240,179,0.25)"),
-        dragmode="pan",
     )
-    st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": True, "displayModeBar": False})
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False, "scrollZoom": True})
 
     # ── Legend + KPIs BELOW the graph ──
-    st.markdown('<div class="nleg"><div class="nleg-i"><div class="nleg-d" style="background:#0FF0B3"></div> Entidades SAV/EAF</div><div class="nleg-i"><div class="nleg-d" style="background:#818CF8"></div> Socios / Accionistas</div><div class="nleg-i"><div class="nleg-d" style="background:#FFBE0B"></div> Administradores</div><div class="nleg-i" style="margin-left:auto;color:#475569;font-size:.7rem">Tamaño = nº conexiones · Zoom con scroll · Arrastra para mover</div></div>', unsafe_allow_html=True)
+    st.markdown('<div class="nleg"><div class="nleg-i"><div class="nleg-d" style="background:#0FF0B3"></div> Entidades SAV/EAF</div><div class="nleg-i"><div class="nleg-d" style="background:#818CF8"></div> Socios / Accionistas</div><div class="nleg-i"><div class="nleg-d" style="background:#FFBE0B"></div> Administradores</div><div class="nleg-i" style="margin-left:auto;color:#475569;font-size:.7rem">Arrastra para rotar · Scroll para zoom · Shift+drag para mover</div></div>', unsafe_allow_html=True)
 
     kpi_row([
         (str(G.number_of_nodes()), "Nodos en la Red", "🔵", "c1"),
