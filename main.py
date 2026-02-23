@@ -112,7 +112,7 @@ div[data-testid="stExpander"]{background:rgba(10,15,26,.5)!important;border:1px 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @st.cache_data
 def load_entities():
-    df = pd.read_csv("cnmv_entities_complete.csv", encoding="utf-8-sig")
+    df = pd.read_csv("data/cnmv_entities_complete.csv", encoding="utf-8-sig")
     df["direccion_provincia"] = df["direccion_provincia"].str.strip().str.upper()
     cap = df["capital_social"].astype(str).str.replace(".","",regex=False).str.replace(",",".",regex=False).str.strip()
     df["cap_num"] = pd.to_numeric(cap, errors="coerce")
@@ -121,7 +121,7 @@ def load_entities():
 
 @st.cache_data
 def load_funds():
-    df = pd.read_csv("all_entities_detailed.csv")
+    df = pd.read_csv("data/all_entities_detailed.csv")
     df["fecha_dt"] = pd.to_datetime(df["fecha_registro"], format="%d/%m/%Y", errors="coerce")
     return df
 
@@ -293,7 +293,7 @@ with st.sidebar:
 # ║  RED DE PODER (LANDING)                                       ║
 # ╚═══════════════════════════════════════════════════════════════╝
 if page == "🕸️  Red de Poder":
-    st.markdown('<div class="hero"><div class="hero-title">Red de <span class="em">Poder</span> Financiero</div><div class="hero-sub">Explora las conexiones ocultas del ecosistema de valores español. Selecciona una entidad para ver su red, o busca el camino más corto entre dos nodos cualesquiera.</div></div>', unsafe_allow_html=True)
+    st.markdown('<div class="hero"><div class="hero-title">Red de <span class="em">Poder</span> Financiero</div><div class="hero-sub">910 nodos, 745 conexiones — el mapa completo de relaciones entre entidades, administradores y socios del ecosistema de valores español.</div></div>', unsafe_allow_html=True)
 
     kpi_row([
         (str(G.number_of_nodes()), "Nodos en la Red", "🔵", "c1"),
@@ -302,9 +302,110 @@ if page == "🕸️  Red de Poder":
         (str(len(E)), "Entidades Reguladas", "🏛️", "c4"),
     ])
 
-    st.markdown('<div class="nleg"><div class="nleg-i"><div class="nleg-d" style="background:#0FF0B3"></div> Entidades</div><div class="nleg-i"><div class="nleg-d" style="background:#818CF8"></div> Socios / Accionistas</div><div class="nleg-i"><div class="nleg-d" style="background:#FFBE0B"></div> Administradores</div></div>', unsafe_allow_html=True)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # FULL NETWORK GRAPH — THE HERO
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    st.markdown('<div class="nleg"><div class="nleg-i"><div class="nleg-d" style="background:#0FF0B3"></div> Entidades SAV/EAF</div><div class="nleg-i"><div class="nleg-d" style="background:#818CF8"></div> Socios / Accionistas</div><div class="nleg-i"><div class="nleg-d" style="background:#FFBE0B"></div> Administradores</div><div class="nleg-i" style="margin-left:auto;color:#475569;font-size:.7rem">Tamaño = nº de conexiones</div></div>', unsafe_allow_html=True)
 
-    tab1, tab2, tab3 = st.tabs(["🏛️ Explorador de Red", "🔗 Entidades Conectadas", "👥 Conexiones Cruzadas"])
+    @st.cache_data
+    def compute_full_graph_layout(_node_list, _edge_list):
+        """Pre-compute layout for the full graph."""
+        H = nx.Graph()
+        for n, nt, et in _node_list:
+            H.add_node(n, nt=nt, et=et)
+        for u, v in _edge_list:
+            H.add_edge(u, v)
+        pos = nx.spring_layout(H, k=2.2, iterations=80, seed=42)
+        return pos
+
+    node_list = tuple((n, d.get("nt",""), d.get("et","")) for n, d in G.nodes(data=True))
+    edge_list = tuple((u, v) for u, v in G.edges())
+    pos = compute_full_graph_layout(node_list, edge_list)
+
+    # Edges — very subtle
+    ex, ey = [], []
+    for u, v in G.edges():
+        if u in pos and v in pos:
+            x0, y0 = pos[u]; x1, y1 = pos[v]
+            ex.extend([x0, x1, None]); ey.extend([y0, y1, None])
+
+    traces = [go.Scatter(x=ex, y=ey, mode="lines",
+        line=dict(width=0.3, color="rgba(100,116,139,0.07)"),
+        hoverinfo="none", showlegend=False)]
+
+    # Nodes by type
+    cfg = {
+        "entity": ("#0FF0B3", "circle", 12, "Entidades"),
+        "socio":  ("#818CF8", "circle", 5, "Socios"),
+        "admin":  ("#FFBE0B", "circle", 4, "Administradores"),
+    }
+    for nt, (base_color, sym, base_sz, label) in cfg.items():
+        nodes = [n for n, d in G.nodes(data=True) if d.get("nt") == nt]
+        if not nodes: continue
+        x = [pos[n][0] for n in nodes if n in pos]
+        y = [pos[n][1] for n in nodes if n in pos]
+        nodes_in_pos = [n for n in nodes if n in pos]
+
+        # Size by degree — more connections = bigger
+        degrees = [G.degree(n) for n in nodes_in_pos]
+        max_deg = max(degrees) if degrees else 1
+        if nt == "entity":
+            sizes = [max(10, min(42, 10 + (d / max(max_deg, 1)) * 32)) for d in degrees]
+            opacities = [max(0.7, min(1.0, 0.7 + d / max(max_deg, 1) * 0.3)) for d in degrees]
+        else:
+            sizes = [max(3, min(16, base_sz + (d / max(max_deg, 1)) * 11)) for d in degrees]
+            opacities = [max(0.4, min(0.85, 0.4 + d / max(max_deg, 1) * 0.45)) for d in degrees]
+
+        # Hover
+        hovers = []
+        for n, deg in zip(nodes_in_pos, degrees):
+            nbs = list(G.neighbors(n))[:6]
+            nb_lines = "<br>".join(f"· {nb[:35]}" for nb in nbs)
+            if len(list(G.neighbors(n))) > 6:
+                nb_lines += f"<br>· ...+{G.degree(n)-6} más"
+            hovers.append(f"<b>{n}</b><br><span style='color:#475569'>{label}</span><br>Conexiones: {deg}<br><br>{nb_lines}")
+
+        traces.append(go.Scatter(x=x, y=y, mode="markers", name=label,
+            marker=dict(size=sizes, color=base_color, symbol=sym,
+                opacity=opacities,
+                line=dict(width=0.5, color="rgba(255,255,255,0.06)")),
+            text=hovers, hoverinfo="text"))
+
+    # Labels for the most connected entities only (top 15)
+    entity_degrees = [(n, G.degree(n)) for n, d in G.nodes(data=True) if d.get("nt") == "entity" and n in pos]
+    entity_degrees.sort(key=lambda x: x[1], reverse=True)
+    top_labeled = entity_degrees[:12]
+    if top_labeled:
+        lx = [pos[n][0] for n, _ in top_labeled]
+        ly = [pos[n][1] + 0.035 for n, _ in top_labeled]
+        labels = [n[:22] for n, _ in top_labeled]
+        traces.append(go.Scatter(x=lx, y=ly, mode="text", text=labels,
+            textfont=dict(size=8, color="rgba(241,245,249,0.55)", family="Outfit"),
+            showlegend=False, hoverinfo="none"))
+
+    fig = go.Figure(data=traces)
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#94A3B8", family="Plus Jakarta Sans"),
+        xaxis=dict(showgrid=False, zeroline=False, visible=False),
+        yaxis=dict(showgrid=False, zeroline=False, visible=False, scaleanchor="x"),
+        height=750, margin=dict(l=0, r=0, t=0, b=0),
+        showlegend=True,
+        legend=dict(bgcolor="rgba(10,15,26,0.85)", bordercolor="rgba(255,255,255,.04)",
+            borderwidth=1, font=dict(size=11, color="#94A3B8"), x=0.01, y=0.99,
+            itemsizing="constant"),
+        hoverlabel=dict(bgcolor="#0a0f1a", font_size=11, font_family="Plus Jakarta Sans",
+            bordercolor="rgba(15,240,179,0.25)"),
+        dragmode="pan",
+    )
+    st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": True, "displayModeBar": True, "modeBarButtonsToRemove": ["lasso2d","select2d"]})
+
+    gdiv()
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # TABS BELOW THE GRAPH
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    tab1, tab2 = st.tabs(["🏛️ Explorador por Entidad", "👥 Conexiones Cruzadas"])
 
     # ─── TAB 1: EGO NETWORK ───
     with tab1:
@@ -366,118 +467,8 @@ if page == "🕸️  Red de Poder":
             else:
                 st.info("Esta entidad no tiene conexiones en la red.")
 
-    # ─── TAB 2: CONNECTIONS MAP ───
+    # ─── TAB 2: CROSS CONNECTIONS ───
     with tab2:
-        sec("Entidades Conectadas", "🛤️")
-        ibox("Estas entidades están <b>conectadas entre sí</b> a través de personas que comparten — un administrador o socio que aparece en ambas. Cada conexión revela un vínculo real entre empresas del ecosistema.")
-
-        # Pre-compute all entity-to-entity connections
-        @st.cache_data
-        def find_all_connections(_E_names):
-            entity_nodes = [n for n,d in G.nodes(data=True) if d.get("nt") == "entity"]
-            import itertools
-            connections = []
-            for a, b in itertools.combinations(entity_nodes, 2):
-                try:
-                    path = nx.shortest_path(G, a, b)
-                    if len(path) == 3:  # entity -> person -> entity
-                        mid = path[1]
-                        mid_data = G.nodes[mid]
-                        mid_type = mid_data.get("nt","")
-                        ed1 = G.get_edge_data(a, mid) or {}
-                        ed2 = G.get_edge_data(mid, b) or {}
-                        cargo1 = ed1.get("cargo","") if ed1.get("rel") == "admin" else ""
-                        cargo2 = ed2.get("cargo","") if ed2.get("rel") == "admin" else ""
-                        pct1 = ed1.get("pct") if ed1.get("rel") == "socio" else None
-                        pct2 = ed2.get("pct") if ed2.get("rel") == "socio" else None
-                        connections.append({
-                            "ent_a": a, "ent_b": b, "via": mid, "via_type": mid_type,
-                            "cargo_a": cargo1, "cargo_b": cargo2, "pct_a": pct1, "pct_b": pct2,
-                        })
-                except nx.NetworkXNoPath:
-                    pass
-            return connections
-
-        connections = find_all_connections(tuple(E["nombre"].tolist()))
-
-        st.markdown(f'<div class="statbox" style="margin:20px 0"><div class="sv">{len(connections)}</div><div class="sl">Conexiones detectadas entre entidades reguladas</div></div>', unsafe_allow_html=True)
-
-        # Show as rich cards
-        for i, conn in enumerate(connections):
-            via_icon = "👤" if conn["via_type"] == "admin" else "💼"
-            via_label = "Administrador" if conn["via_type"] == "admin" else "Socio"
-
-            # Get entity types
-            type_a = E[E["nombre"]==conn["ent_a"]]["tipo_entidad"].values
-            type_b = E[E["nombre"]==conn["ent_b"]]["tipo_entidad"].values
-            badge_a = f'<span class="ebadge {"ebadge-s" if len(type_a) and type_a[0]=="SAV" else "ebadge-e"}" style="font-size:.6rem;padding:3px 10px">{"SAV" if len(type_a) and type_a[0]=="SAV" else "EAF"}</span>'
-            badge_b = f'<span class="ebadge {"ebadge-s" if len(type_b) and type_b[0]=="SAV" else "ebadge-e"}" style="font-size:.6rem;padding:3px 10px">{"SAV" if len(type_b) and type_b[0]=="SAV" else "EAF"}</span>'
-
-            # Role details
-            detail_a = ""
-            if conn["cargo_a"]: detail_a = f'<span style="color:#475569;font-size:.72rem"> · {conn["cargo_a"]}</span>'
-            elif conn["pct_a"]: detail_a = f'<span style="color:#FFBE0B;font-size:.72rem"> · {conn["pct_a"]:.1f}%</span>'
-            detail_b = ""
-            if conn["cargo_b"]: detail_b = f'<span style="color:#475569;font-size:.72rem"> · {conn["cargo_b"]}</span>'
-            elif conn["pct_b"]: detail_b = f'<span style="color:#FFBE0B;font-size:.72rem"> · {conn["pct_b"]:.1f}%</span>'
-
-            st.markdown(f"""
-            <div class="ecard" style="padding:20px 24px;margin-bottom:10px">
-                <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:16px">
-                    <div>
-                        <div style="font-family:Outfit;font-size:.95rem;font-weight:700;color:#F8FAFC;margin-bottom:5px">{conn["ent_a"][:45]}</div>
-                        <div>{badge_a}{detail_a}</div>
-                    </div>
-                    <div style="text-align:center;padding:10px 16px;background:rgba(15,240,179,.04);border-radius:12px;border:1px solid rgba(15,240,179,.1)">
-                        <div style="font-size:1.2rem;margin-bottom:4px">🔗</div>
-                        <div style="font-size:.72rem;color:#0FF0B3;font-weight:600">{via_icon} {conn["via"][:25]}</div>
-                        <div style="font-size:.6rem;color:#475569;margin-top:2px">{via_label} en ambas</div>
-                    </div>
-                    <div style="text-align:right">
-                        <div style="font-family:Outfit;font-size:.95rem;font-weight:700;color:#F8FAFC;margin-bottom:5px">{conn["ent_b"][:45]}</div>
-                        <div>{badge_b}{detail_b}</div>
-                    </div>
-                </div>
-            </div>""", unsafe_allow_html=True)
-
-        gdiv()
-
-        # ── CUSTOM SEARCH ──
-        with st.expander("🔍 Buscar conexión entre dos entidades específicas"):
-            entity_nodes = sorted([n for n,d in G.nodes(data=True) if d.get("nt") == "entity"])
-            cp1, cp2 = st.columns(2)
-            with cp1:
-                # Default to a connected pair
-                default_a_name = connections[0]["ent_a"] if connections else entity_nodes[0]
-                default_a = entity_nodes.index(default_a_name) if default_a_name in entity_nodes else 0
-                node_a = st.selectbox("Entidad A", entity_nodes, index=default_a, key="path_a")
-            with cp2:
-                default_b_name = connections[0]["ent_b"] if connections else entity_nodes[min(1, len(entity_nodes)-1)]
-                default_b = entity_nodes.index(default_b_name) if default_b_name in entity_nodes else min(1, len(entity_nodes)-1)
-                node_b = st.selectbox("Entidad B", entity_nodes, index=default_b, key="path_b")
-
-            if node_a and node_b and node_a != node_b:
-                try:
-                    path = nx.shortest_path(G, node_a, node_b)
-                    st.success(f"✅ Conectadas en **{len(path)-1} pasos**")
-                    for i, n in enumerate(path):
-                        nd = G.nodes[n]
-                        tipo_label = {"entity":"🏛️", "admin":"👤", "socio":"💼"}.get(nd.get("nt"),"")
-                        if i < len(path)-1:
-                            ed = G.get_edge_data(path[i], path[i+1])
-                            rel = ed.get("rel","") if ed else ""
-                            extra = ""
-                            if rel == "admin" and ed.get("cargo"): extra = f" ({ed['cargo']})"
-                            elif rel == "socio" and ed.get("pct"): extra = f" ({ed['pct']:.1f}%)"
-                            arrow = f" → *{rel}{extra}*"
-                        else:
-                            arrow = ""
-                        st.markdown(f"**{i+1}.** {tipo_label} **{n}**{arrow}", unsafe_allow_html=True)
-                except nx.NetworkXNoPath:
-                    st.warning("⚠️ No existe conexión — pertenecen a componentes desconectados de la red.")
-
-    # ─── TAB 3: CROSS CONNECTIONS ───
-    with tab3:
         sec("Personas en Múltiples Entidades", "🔗")
         ibox(f'<b>{len(cross_people)} personas</b> ocupan cargos en más de una entidad regulada simultáneamente. Estas conexiones cruzadas revelan los centros de poder del ecosistema financiero español.')
 
