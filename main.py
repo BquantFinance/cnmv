@@ -170,30 +170,41 @@ def build_graph(_E, _F):
             G.add_edge(ent, nm, rel="socio", pct=s.get("Pct"))
             socios_map.setdefault(nm, []).append((ent, s.get("Pct"), tipo))
 
-    # ── Phase 2: Capital Riesgo — gestoras, depositarias, funds ──
+    # ── Phase 2: Capital Riesgo — gestoras + depositarias (no individual funds) ──
     uf = _F.drop_duplicates("entity_name")
-    for _, r in uf.iterrows():
-        fund = r["entity_name"]
-        if fund not in G:
-            G.add_node(fund, nt="fund", et=str(r.get("entity_type","")))
+    gest_dep_funds = {}  # (gestora, depositaria) → count
+    gest_fund_count = {}  # gestora → total funds
 
+    for _, r in uf.iterrows():
         gest = r.get("gestora_nombre")
+        dep = r.get("depositaria_nombre")
         if pd.notna(gest) and str(gest).strip():
             gest = str(gest).strip()
-            if gest not in G:
-                G.add_node(gest, nt="gestora")
-            G.add_edge(fund, gest, rel="gestion")
+            gest_fund_count[gest] = gest_fund_count.get(gest, 0) + 1
+            if pd.notna(dep) and str(dep).strip():
+                dep = str(dep).strip()
+                key = (gest, dep)
+                gest_dep_funds[key] = gest_dep_funds.get(key, 0) + 1
 
-        dep = r.get("depositaria_nombre")
-        if pd.notna(dep) and str(dep).strip():
-            dep = str(dep).strip()
-            if dep not in G:
-                G.add_node(dep, nt="depositaria")
-            elif G.nodes[dep].get("nt") == "socio":
-                # BRIDGE: socio in SAV/EAF is also a depositaria → promote
-                G.nodes[dep]["nt"] = "depositaria"
-                G.nodes[dep]["bridge"] = True
-            G.add_edge(fund, dep, rel="deposito")
+    # Add gestoras
+    for gest, n_funds in gest_fund_count.items():
+        if gest not in G:
+            G.add_node(gest, nt="gestora", n_funds=n_funds)
+
+    # Add depositarias
+    dep_names = set()
+    for (gest, dep), count in gest_dep_funds.items():
+        dep_names.add(dep)
+    for dep in dep_names:
+        if dep not in G:
+            G.add_node(dep, nt="depositaria")
+        elif G.nodes[dep].get("nt") == "socio":
+            G.nodes[dep]["nt"] = "depositaria"
+            G.nodes[dep]["bridge"] = True
+
+    # Connect gestora → depositaria directly
+    for (gest, dep), count in gest_dep_funds.items():
+        G.add_edge(gest, dep, rel="deposito", n_funds=count)
 
     cross = {k:v for k,v in people_map.items() if len(set(e[0] for e in v)) > 1}
     return G, people_map, socios_map, cross
@@ -347,11 +358,11 @@ if page == "🕸️  Red de Poder":
         for idx, comp in enumerate(comps):
             sub = H.subgraph(comp)
             n_nodes = len(comp)
-            # Scale radius with component size — big clusters get more space
-            comp_radius = max(0.6, np.sqrt(n_nodes) * 0.35 + n_nodes * 0.005)
+            # Scale radius with component size
+            comp_radius = max(0.6, np.sqrt(n_nodes) * 0.45)
 
             t = idx * 0.8
-            spiral_r = 3.5 * np.sqrt(t + 1)
+            spiral_r = 3.0 * np.sqrt(t + 1)
             phi = golden_angle * idx
             theta = np.arccos(1 - 2 * ((idx + 0.5) / max(n_comps, 1)))
 
@@ -362,15 +373,6 @@ if page == "🕸️  Red de Poder":
             if n_nodes == 1:
                 n = list(comp)[0]
                 pos[n] = (cx + rng.uniform(-0.2, 0.2), cy + rng.uniform(-0.2, 0.2), cz + rng.uniform(-0.2, 0.2))
-            elif n_nodes > 500:
-                # Large component: use spring with lower k for tighter packing
-                local = nx.spring_layout(sub, k=0.8, iterations=50, seed=42, dim=3)
-                for n, coords in local.items():
-                    pos[n] = (
-                        coords[0] * comp_radius + cx,
-                        coords[1] * comp_radius + cy,
-                        coords[2] * comp_radius * 0.4 + cz,
-                    )
             else:
                 local = nx.spring_layout(sub, k=1.4, iterations=40, seed=42, dim=3)
                 for n, coords in local.items():
@@ -408,7 +410,7 @@ canvas{display:block}
   box-shadow:0 4px 24px rgba(0,0,0,0.4),0 0 40px rgba(100,255,218,0.03)}
 .tn{font-weight:700;font-size:13px;margin-bottom:4px;color:#F8FAFC}
 .tt{font-size:9.5px;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:5px;opacity:0.7}
-.tt-e{color:#64FFDA}.tt-a{color:#FFA726}.tt-s{color:#B388FF}.tt-g{color:#FF6B9D}.tt-d{color:#E0F7FA}.tt-f{color:#26A69A}
+.tt-e{color:#64FFDA}.tt-a{color:#FFA726}.tt-s{color:#B388FF}.tt-g{color:#FF6B9D}.tt-d{color:#E0F7FA}
 .td{color:#94A3B8;font-size:11px}
 #ld{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#1E293B;
   font-size:11px;letter-spacing:4px;text-transform:uppercase;z-index:200}
@@ -425,10 +427,9 @@ canvas{display:block}
 <div id="leg">
   <div class="li"><div class="ld" style="background:#E0F7FA;box-shadow:0 0 8px #E0F7FA88"></div>Depositarias</div>
   <div class="li"><div class="ld" style="background:#00FFD0;box-shadow:0 0 6px #00FFD066"></div>SAV/EAF</div>
-  <div class="li"><div class="ld" style="background:#FF6B9D;box-shadow:0 0 6px #FF6B9D66"></div>Gestoras</div>
+  <div class="li"><div class="ld" style="background:#FF6B9D;box-shadow:0 0 6px #FF6B9D66"></div>Gestoras CR</div>
   <div class="li"><div class="ld" style="background:#B388FF;box-shadow:0 0 6px #B388FF66"></div>Socios</div>
   <div class="li"><div class="ld" style="background:#FFA726;box-shadow:0 0 6px #FFA72666"></div>Admins</div>
-  <div class="li"><div class="ld" style="background:#26A69A;box-shadow:0 0 6px #26A69A66"></div>Fondos CR</div>
 </div>
 <div id="hint">Arrastra para rotar &middot; Scroll para zoom</div>
 
@@ -449,11 +450,11 @@ let W=window.innerWidth, H=window.innerHeight;
 // ── Scene ──
 const scene=new THREE.Scene();
 scene.background=new THREE.Color(0x030712);
-scene.fog=new THREE.FogExp2(0x030712, 0.003);
+scene.fog=new THREE.FogExp2(0x030712, 0.005);
 
 // ── Camera ──
 const camera=new THREE.PerspectiveCamera(60, W/H, 0.1, 600);
-camera.position.set(D.core[0]+30, D.core[1]+30, D.core[2]+20);
+camera.position.set(D.core[0]+20, D.core[1]+20, D.core[2]+14);
 
 // ── Renderer ──
 const renderer=new THREE.WebGLRenderer({antialias:true, alpha:false});
@@ -465,11 +466,11 @@ document.body.appendChild(renderer.domElement);
 
 // ── Lights — 3-point setup ──
 scene.add(new THREE.AmbientLight(0x0d1f3c, 0.5));
-const keyLight=new THREE.PointLight(0x64FFDA, 0.45, 250);
+const keyLight=new THREE.PointLight(0x64FFDA, 0.45, 160);
 keyLight.position.copy(camera.position); scene.add(keyLight);
-const fillLight=new THREE.PointLight(0xB388FF, 0.2, 180);
+const fillLight=new THREE.PointLight(0xB388FF, 0.2, 120);
 fillLight.position.set(D.core[0]-15, D.core[1]+15, D.core[2]+8); scene.add(fillLight);
-const rimLight=new THREE.PointLight(0xFFA726, 0.12, 150);
+const rimLight=new THREE.PointLight(0xFFA726, 0.12, 100);
 rimLight.position.set(D.core[0]+10, D.core[1]-20, D.core[2]-5); scene.add(rimLight);
 
 // ── Controls ──
@@ -477,7 +478,7 @@ const ctrl=new OrbitControls(camera,renderer.domElement);
 ctrl.target.set(D.core[0], D.core[1], D.core[2]);
 ctrl.enableDamping=true; ctrl.dampingFactor=0.05;
 ctrl.autoRotate=true; ctrl.autoRotateSpeed=0.2;
-ctrl.maxDistance=250; ctrl.minDistance=3; ctrl.update();
+ctrl.maxDistance=160; ctrl.minDistance=3; ctrl.update();
 
 // ── Post-processing ──
 const composer=new EffectComposer(renderer);
@@ -508,12 +509,11 @@ scene.add(new THREE.LineSegments(eGeo,
 // ── Nodes ──
 const sGeo=new THREE.IcosahedronGeometry(1,3);
 const types={
-  depositaria:{color:0xE0F7FA,emissive:0xE0F7FA,eI:0.55,sMin:0.35,sMax:0.65,label:'Depositaria',cls:'tt-d'},
-  entity:{color:0x00FFD0, emissive:0x00FFD0, eI:0.3, sMin:0.10, sMax:0.38, label:'Entidad SAV/EAF', cls:'tt-e'},
-  gestora:{color:0xFF6B9D,emissive:0xFF6B9D,eI:0.25,sMin:0.06,sMax:0.22,label:'Gestora',cls:'tt-g'},
-  admin: {color:0xFFA726, emissive:0xFFA726, eI:0.2, sMin:0.04, sMax:0.12, label:'Administrador', cls:'tt-a'},
-  socio: {color:0xB388FF, emissive:0xB388FF, eI:0.2, sMin:0.04, sMax:0.12, label:'Socio', cls:'tt-s'},
-  fund:{color:0x26A69A,emissive:0x26A69A,eI:0.08,sMin:0.02,sMax:0.055,label:'Fondo Capital Riesgo',cls:'tt-f'}
+  depositaria:{color:0xE0F7FA,emissive:0xE0F7FA,eI:0.5,sMin:0.25,sMax:0.55,label:'Depositaria',cls:'tt-d'},
+  entity:{color:0x00FFD0, emissive:0x00FFD0, eI:0.3, sMin:0.10, sMax:0.35, label:'Entidad SAV/EAF', cls:'tt-e'},
+  gestora:{color:0xFF6B9D,emissive:0xFF6B9D,eI:0.2,sMin:0.06,sMax:0.20,label:'Gestora',cls:'tt-g'},
+  admin: {color:0xFFA726, emissive:0xFFA726, eI:0.15, sMin:0.03, sMax:0.10, label:'Administrador', cls:'tt-a'},
+  socio: {color:0xB388FF, emissive:0xB388FF, eI:0.15, sMin:0.03, sMax:0.10, label:'Socio', cls:'tt-s'}
 };
 const mM={}, nM={}, dm=new THREE.Object3D();
 
@@ -539,12 +539,12 @@ for(const[type,cfg] of Object.entries(types)){
 }
 
 // ── Ambient dust particles ──
-const dN=4000, dPos=new Float32Array(dN*3), dCol=new Float32Array(dN*3);
+const dN=3000, dPos=new Float32Array(dN*3), dCol=new Float32Array(dN*3);
 const dSizes=new Float32Array(dN);
 for(let i=0;i<dN;i++){
-  dPos[i*3]=(Math.random()-0.5)*300;
-  dPos[i*3+1]=(Math.random()-0.5)*300;
-  dPos[i*3+2]=(Math.random()-0.5)*300;
+  dPos[i*3]=(Math.random()-0.5)*180;
+  dPos[i*3+1]=(Math.random()-0.5)*180;
+  dPos[i*3+2]=(Math.random()-0.5)*180;
   const b=0.015+Math.random()*0.035;
   const hue=Math.random();
   if(hue<0.5){dCol[i*3]=b*0.4;dCol[i*3+1]=b;dCol[i*3+2]=b*0.85}
@@ -559,13 +559,13 @@ scene.add(new THREE.Points(dGeo,
   new THREE.PointsMaterial({size:0.1,vertexColors:true,transparent:true,opacity:0.5,sizeAttenuation:true})));
 
 // ── Subtle ground ring at the core ──
-const ringGeo=new THREE.RingGeometry(20, 20.08, 128);
+const ringGeo=new THREE.RingGeometry(15, 15.06, 128);
 const ringMat=new THREE.MeshBasicMaterial({color:0x0a2a2a, transparent:true, opacity:0.15, side:THREE.DoubleSide});
 const ring=new THREE.Mesh(ringGeo, ringMat);
 ring.position.set(D.core[0], D.core[1], D.core[2]-2);
 ring.rotation.x=Math.PI/2;
 scene.add(ring);
-const ring2Geo=new THREE.RingGeometry(40, 40.06, 128);
+const ring2Geo=new THREE.RingGeometry(30, 30.04, 128);
 const ring2=new THREE.Mesh(ring2Geo, ringMat.clone());
 ring2.material.opacity=0.08;
 ring2.position.set(D.core[0], D.core[1], D.core[2]-2);
@@ -639,12 +639,11 @@ window.addEventListener('resize',()=>{
 
     n_gest = sum(1 for n in G.nodes() if G.nodes[n].get("nt") == "gestora")
     n_dep = sum(1 for n in G.nodes() if G.nodes[n].get("nt") == "depositaria")
-    n_funds = sum(1 for n in G.nodes() if G.nodes[n].get("nt") == "fund")
     kpi_row([
         (f"{G.number_of_nodes():,}", "Nodos en la Red", "🔵", "c1"),
         (f"{G.number_of_edges():,}", "Conexiones", "🔗", "c2"),
         (f"{len(E)} + {n_gest}", "SAV/EAF + Gestoras", "🏛️", "c3"),
-        (f"{n_funds:,}", "Fondos Capital Riesgo", "💰", "c4"),
+        (f"{n_gest}", "Gestoras Capital Riesgo", "📊", "c4"),
     ])
 
     gdiv()
