@@ -375,10 +375,13 @@ if page == "🕸️  Red de Poder":
 
         if nt == "entity":
             sizes = [max(5, min(28, 5 + (d / max(max_deg, 1)) * 23)) for d in degrees]
-            opac = [max(0.75, min(1.0, 0.75 + d / max(max_deg, 1) * 0.25)) for d in degrees]
+            # Scatter3d doesn't support opacity list — use RGBA colors
+            rgb = (15, 240, 179)  # #0FF0B3
+            colors = [f"rgba({rgb[0]},{rgb[1]},{rgb[2]},{max(0.75, min(1.0, 0.75 + d / max(max_deg, 1) * 0.25)):.2f})" for d in degrees]
         else:
             sizes = [max(2, min(10, base_sz + (d / max(max_deg, 1)) * 7)) for d in degrees]
-            opac = [max(0.4, min(0.85, 0.4 + d / max(max_deg, 1) * 0.45)) for d in degrees]
+            rgb = (129, 140, 248) if nt == "socio" else (255, 190, 11)  # #818CF8 / #FFBE0B
+            colors = [f"rgba({rgb[0]},{rgb[1]},{rgb[2]},{max(0.4, min(0.85, 0.4 + d / max(max_deg, 1) * 0.45)):.2f})" for d in degrees]
 
         hovers = []
         for n, deg in zip(nodes, degrees):
@@ -388,7 +391,7 @@ if page == "🕸️  Red de Poder":
             hovers.append(f"<b>{n}</b><br>{label}<br>Conexiones: {deg}<br><br>{nb_lines}")
 
         traces.append(go.Scatter3d(x=x, y=y, z=z, mode="markers", name=label,
-            marker=dict(size=sizes, color=base_color, opacity=opac,
+            marker=dict(size=sizes, color=colors,
                 line=dict(width=0.3, color="rgba(255,255,255,0.08)")),
             text=hovers, hoverinfo="text"))
 
