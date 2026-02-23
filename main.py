@@ -317,28 +317,28 @@ if page == "🕸️  Red de Poder":
         for idx, comp in enumerate(comps):
             sub = H.subgraph(comp)
             n_nodes = len(comp)
-            comp_radius = max(0.5, np.sqrt(n_nodes) * 0.4)
+            comp_radius = max(0.8, np.sqrt(n_nodes) * 0.7)
 
-            # Spherical spiral distribution
-            t = idx * 0.6
-            spiral_r = 1.8 * np.sqrt(t + 1)
+            # Wide spherical spiral — lots of breathing room
+            t = idx * 1.0
+            spiral_r = 4.0 * np.sqrt(t + 1)
             phi = golden_angle * idx
-            theta = np.arccos(1 - 2 * (idx / max(n_comps - 1, 1)))
+            theta = np.arccos(1 - 2 * ((idx + 0.5) / max(n_comps, 1)))
 
             cx = spiral_r * np.sin(theta) * np.cos(phi)
             cy = spiral_r * np.sin(theta) * np.sin(phi)
-            cz = spiral_r * np.cos(theta) * 0.55
+            cz = spiral_r * np.cos(theta) * 0.7
 
             if n_nodes == 1:
                 n = list(comp)[0]
-                pos[n] = (cx + rng.uniform(-0.1, 0.1), cy + rng.uniform(-0.1, 0.1), cz + rng.uniform(-0.1, 0.1))
+                pos[n] = (cx + rng.uniform(-0.3, 0.3), cy + rng.uniform(-0.3, 0.3), cz + rng.uniform(-0.3, 0.3))
             else:
-                local = nx.spring_layout(sub, k=1.2, iterations=40, seed=42, dim=3)
+                local = nx.spring_layout(sub, k=1.5, iterations=40, seed=42, dim=3)
                 for n, coords in local.items():
                     pos[n] = (
                         coords[0] * comp_radius + cx,
                         coords[1] * comp_radius + cy,
-                        coords[2] * comp_radius * 0.5 + cz,
+                        coords[2] * comp_radius * 0.6 + cz,
                     )
         return pos
 
@@ -354,7 +354,7 @@ if page == "🕸️  Red de Poder":
             ex.extend([x0, x1, None]); ey.extend([y0, y1, None]); ez.extend([z0, z1, None])
 
     traces = [go.Scatter3d(x=ex, y=ey, z=ez, mode="lines",
-        line=dict(width=1, color="rgba(100,116,139,0.08)"),
+        line=dict(width=1.2, color="rgba(100,116,139,0.12)"),
         hoverinfo="none", showlegend=False)]
 
     # 3D Nodes
@@ -399,8 +399,8 @@ if page == "🕸️  Red de Poder":
 
     # Camera: slight angle for dramatic perspective
     camera = dict(
-        eye=dict(x=1.6, y=1.6, z=0.8),
-        center=dict(x=0, y=0, z=-0.1),
+        eye=dict(x=1.8, y=1.8, z=1.0),
+        center=dict(x=0, y=0, z=-0.05),
         up=dict(x=0, y=0, z=1),
     )
 
