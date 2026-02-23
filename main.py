@@ -393,22 +393,22 @@ const W=window.innerWidth, H=window.innerHeight;
 
 const scene=new THREE.Scene();
 scene.background=new THREE.Color(0x030712);
-scene.fog=new THREE.FogExp2(0x030712, 0.016);
+scene.fog=new THREE.FogExp2(0x030712, 0.007);
 
 const camera=new THREE.PerspectiveCamera(65,W/H,0.1,300);
-camera.position.set(D.core[0]+4, D.core[1]+4, D.core[2]+3);
+camera.position.set(D.core[0]+22, D.core[1]+22, D.core[2]+15);
 
 const renderer=new THREE.WebGLRenderer({antialias:true});
 renderer.setSize(W,H);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
 renderer.toneMapping=THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure=1.2;
+renderer.toneMappingExposure=0.9;
 document.body.appendChild(renderer.domElement);
 
 scene.add(new THREE.AmbientLight(0x0a1628,0.4));
-const pl=new THREE.PointLight(0x64FFDA,0.6,80);
+const pl=new THREE.PointLight(0x64FFDA,0.3,100);
 pl.position.copy(camera.position); scene.add(pl);
-const pl2=new THREE.PointLight(0x7C4DFF,0.3,60);
+const pl2=new THREE.PointLight(0x7C4DFF,0.15,80);
 pl2.position.set(D.core[0]-10,D.core[1]+10,D.core[2]+5); scene.add(pl2);
 
 const ctrl=new OrbitControls(camera,renderer.domElement);
@@ -419,7 +419,7 @@ ctrl.maxDistance=120; ctrl.minDistance=2; ctrl.update();
 
 const composer=new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene,camera));
-composer.addPass(new UnrealBloomPass(new THREE.Vector2(W,H),1.6,0.6,0.15));
+composer.addPass(new UnrealBloomPass(new THREE.Vector2(W,H),0.35,0.4,0.6));
 composer.addPass(new OutputPass());
 
 const eP=new Float32Array(D.edges.length*6);
@@ -430,13 +430,13 @@ for(let i=0;i<D.edges.length;i++){
 }
 const eG=new THREE.BufferGeometry();
 eG.setAttribute('position',new THREE.BufferAttribute(eP,3));
-scene.add(new THREE.LineSegments(eG,new THREE.LineBasicMaterial({color:0x112828,transparent:true,opacity:0.25})));
+scene.add(new THREE.LineSegments(eG,new THREE.LineBasicMaterial({color:0x1a3a3a,transparent:true,opacity:0.35})));
 
 const sG=new THREE.IcosahedronGeometry(1,2);
 const types={
-  entity:{color:0x00FFD0,emissive:0x00FFD0,eI:0.6,sMin:0.12,sMax:0.52,label:'Entidad'},
-  admin:{color:0xFFA726,emissive:0xFFA726,eI:0.4,sMin:0.05,sMax:0.16,label:'Administrador'},
-  socio:{color:0x7C4DFF,emissive:0x7C4DFF,eI:0.4,sMin:0.05,sMax:0.16,label:'Socio'}
+  entity:{color:0x00FFD0,emissive:0x00FFD0,eI:0.15,sMin:0.08,sMax:0.35,label:'Entidad'},
+  admin:{color:0xFFA726,emissive:0xFFA726,eI:0.1,sMin:0.04,sMax:0.12,label:'Administrador'},
+  socio:{color:0x7C4DFF,emissive:0x7C4DFF,eI:0.1,sMin:0.04,sMax:0.12,label:'Socio'}
 };
 const mM={},nM={},dm=new THREE.Object3D();
 for(const[type,cfg] of Object.entries(types)){
