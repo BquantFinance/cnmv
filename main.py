@@ -297,11 +297,10 @@ if page == "🕸️  Red de Poder":
     st.markdown('<div class="hero"><div class="hero-title">Red de <span class="em">Poder</span> Financiero</div><div class="hero-sub">El mapa tridimensional de relaciones entre entidades, administradores y socios del ecosistema de valores español. Arrastra para rotar.</div></div>', unsafe_allow_html=True)
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # 3D IMMERSIVE NETWORK — ATMOSPHERIC DEPTH
+    # 3D NETWORK — STARFIELD AESTHETIC
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     @st.cache_data
     def compute_3d_layout(_node_list, _edge_list):
-        """3D layout with atmospheric depth data."""
         H = nx.Graph()
         for n, nt, et in _node_list:
             H.add_node(n, nt=nt, et=et)
@@ -345,71 +344,37 @@ if page == "🕸️  Red de Poder":
     edge_list = tuple((u, v) for u, v in G.edges())
     pos3d = compute_3d_layout(node_list, edge_list)
 
-    # ── Atmospheric depth computation ──
-    # Camera world position (eye * scene_scale)
-    cam_eye = np.array([0.45, 0.45, 0.25])
+    # Camera depth
     all_coords = np.array(list(pos3d.values()))
     scene_center = all_coords.mean(axis=0)
     scene_scale = np.abs(all_coords - scene_center).max()
-    cam_world = cam_eye * scene_scale + scene_center
-
+    cam_world = np.array([0.5, 0.5, 0.3]) * scene_scale + scene_center
     node_dists = {n: np.linalg.norm(np.array(p) - cam_world) for n, p in pos3d.items()}
-    dist_min = min(node_dists.values())
-    dist_max = max(node_dists.values())
-    dist_range = max(dist_max - dist_min, 1)
+    d_min, d_max = min(node_dists.values()), max(node_dists.values())
+    d_range = max(d_max - d_min, 1)
 
-    def depth_factor(n):
-        """0 = closest to camera, 1 = furthest."""
-        return (node_dists[n] - dist_min) / dist_range
+    def df(n):
+        return (node_dists[n] - d_min) / d_range
 
-    def depth_color(n, near_rgb, far_rgb, alpha_near=1.0, alpha_far=0.18):
-        """Interpolate color + opacity by distance from camera."""
-        t = depth_factor(n)
-        r = int(near_rgb[0] + (far_rgb[0] - near_rgb[0]) * t)
-        g = int(near_rgb[1] + (far_rgb[1] - near_rgb[1]) * t)
-        b = int(near_rgb[2] + (far_rgb[2] - near_rgb[2]) * t)
-        a = alpha_near + (alpha_far - alpha_near) * t
-        return f"rgba({r},{g},{b},{a:.2f})"
-
-    # ── Edges with atmospheric fade ──
+    # ── Edges ──
     ex, ey, ez = [], [], []
-    edge_colors = []
     for u, v in G.edges():
         if u in pos3d and v in pos3d:
             x0, y0, z0 = pos3d[u]; x1, y1, z1 = pos3d[v]
             ex.extend([x0, x1, None]); ey.extend([y0, y1, None]); ez.extend([z0, z1, None])
 
     traces = [go.Scatter3d(x=ex, y=ey, z=ez, mode="lines",
-        line=dict(width=1.2, color="rgba(40,180,160,0.04)"),
+        line=dict(width=1.0, color="rgba(80,200,180,0.045)"),
         hoverinfo="none", showlegend=False)]
 
-    # ── Atmospheric node config ──
-    # near_rgb → far_rgb with depth fog
+    # ── Nodes — small crisp particles ──
     node_cfg = {
-        "entity": {
-            "near": (20, 255, 210), "far": (15, 50, 90),
-            "a_near": 0.95, "a_far": 0.12,
-            "sz_near": 22, "sz_far": 5, "sz_deg_boost": 16,
-            "glow_mult": 4.0, "glow_a_near": 0.08, "glow_a_far": 0.01,
-            "label": "🏛️ Entidades",
-        },
-        "admin": {
-            "near": (255, 210, 60), "far": (120, 70, 20),
-            "a_near": 0.85, "a_far": 0.10,
-            "sz_near": 7, "sz_far": 2, "sz_deg_boost": 5,
-            "glow_mult": 3.0, "glow_a_near": 0.06, "glow_a_far": 0.005,
-            "label": "👤 Administradores",
-        },
-        "socio": {
-            "near": (160, 150, 255), "far": (40, 30, 100),
-            "a_near": 0.80, "a_far": 0.10,
-            "sz_near": 6, "sz_far": 2, "sz_deg_boost": 5,
-            "glow_mult": 3.0, "glow_a_near": 0.06, "glow_a_far": 0.005,
-            "label": "💼 Socios",
-        },
+        "entity": {"near": (100, 255, 218), "far": (20, 80, 100), "sz": (4, 12), "a": (0.95, 0.2), "label": "🏛️ Entidades"},
+        "admin":  {"near": (255, 220, 100), "far": (140, 80, 30), "sz": (2, 5),   "a": (0.85, 0.15), "label": "👤 Administradores"},
+        "socio":  {"near": (180, 170, 255), "far": (60, 50, 120), "sz": (2, 5),   "a": (0.80, 0.15), "label": "💼 Socios"},
     }
 
-    for nt, cfg in node_cfg.items():
+    for nt, c in node_cfg.items():
         nodes = [n for n in G.nodes() if G.nodes[n].get("nt") == nt and n in pos3d]
         if not nodes: continue
 
@@ -420,47 +385,33 @@ if page == "🕸️  Red de Poder":
         degrees = [G.degree(n) for n in nodes]
         max_deg = max(degrees) if degrees else 1
 
-        # Depth-modulated sizes: near+connected = big, far+leaf = tiny
-        sizes = []
+        sizes, colors = [], []
         for n, d in zip(nodes, degrees):
-            df = depth_factor(n)
-            base = cfg["sz_near"] + (cfg["sz_far"] - cfg["sz_near"]) * df
-            deg_boost = (d / max(max_deg, 1)) * cfg["sz_deg_boost"] * (1 - df * 0.6)
+            t = df(n)
+            # Size: near=big, far=small, plus degree boost
+            base = c["sz"][1] + (c["sz"][0] - c["sz"][1]) * t
+            deg_boost = (d / max(max_deg, 1)) * (c["sz"][1] * 0.8) * (1 - t * 0.5)
             sizes.append(max(1.5, base + deg_boost))
+            # Color: interpolate near→far with depth opacity
+            nr, ng, nb = c["near"]; fr, fg, fb = c["far"]
+            r = int(nr + (fr - nr) * t)
+            g = int(ng + (fg - ng) * t)
+            b = int(nb + (fb - nb) * t)
+            a = c["a"][0] + (c["a"][1] - c["a"][0]) * t
+            colors.append(f"rgba({r},{g},{b},{a:.2f})")
 
-        # Depth-modulated colors
-        colors = [depth_color(n, cfg["near"], cfg["far"], cfg["a_near"], cfg["a_far"]) for n in nodes]
-
-        # Glow colors (same hue, much lower opacity)
-        glow_colors = [depth_color(n, cfg["near"], cfg["far"], cfg["glow_a_near"], cfg["glow_a_far"]) for n in nodes]
-        glow_sizes = [s * cfg["glow_mult"] for s in sizes]
-
-        # Hover
         hovers = []
         for n, deg in zip(nodes, degrees):
             nbs = list(G.neighbors(n))[:5]
             nb_lines = "<br>".join(f"· {nb[:35]}" for nb in nbs)
             if G.degree(n) > 5: nb_lines += f"<br>...+{G.degree(n)-5} más"
-            hovers.append(f"<b>{n}</b><br>{cfg['label']}<br>Conexiones: {deg}<br><br>{nb_lines}")
+            hovers.append(f"<b>{n}</b><br>{c['label']}<br>Conexiones: {deg}<br><br>{nb_lines}")
 
-        # GLOW HALO
-        traces.append(go.Scatter3d(x=x, y=y, z=z, mode="markers",
-            marker=dict(size=glow_sizes, color=glow_colors, line=dict(width=0)),
-            hoverinfo="none", showlegend=False))
-
-        # CORE NODE
-        traces.append(go.Scatter3d(x=x, y=y, z=z, mode="markers", name=cfg["label"],
+        traces.append(go.Scatter3d(x=x, y=y, z=z, mode="markers", name=c["label"],
             marker=dict(size=sizes, color=colors, line=dict(width=0)),
             text=hovers, hoverinfo="text"))
 
     fig = go.Figure(data=traces)
-
-    # Camera inside the cloud
-    camera = dict(
-        eye=dict(x=0.45, y=0.45, z=0.25),
-        center=dict(x=0, y=0, z=0),
-        up=dict(x=0, y=0, z=1),
-    )
 
     fig.update_layout(
         paper_bgcolor="rgba(0,0,0,0)",
@@ -469,19 +420,16 @@ if page == "🕸️  Red de Poder":
             xaxis=dict(visible=False, showbackground=False),
             yaxis=dict(visible=False, showbackground=False),
             zaxis=dict(visible=False, showbackground=False),
-            camera=camera,
+            camera=dict(eye=dict(x=0.5, y=0.5, z=0.3), center=dict(x=0,y=0,z=0), up=dict(x=0,y=0,z=1)),
             aspectmode="data",
         ),
         font=dict(color="#94A3B8", family="Plus Jakarta Sans"),
         height=850, margin=dict(l=0, r=0, t=0, b=0),
         showlegend=True,
-        legend=dict(
-            bgcolor="rgba(3,7,18,0.92)", bordercolor="rgba(15,240,179,.06)",
-            borderwidth=1, font=dict(size=11, color="#94A3B8"),
-            x=0.01, y=0.98, itemsizing="constant",
-        ),
-        hoverlabel=dict(bgcolor="rgba(3,7,18,0.95)", font_size=11,
-            font_family="Plus Jakarta Sans", bordercolor="rgba(15,240,179,0.25)"),
+        legend=dict(bgcolor="rgba(3,7,18,0.92)", bordercolor="rgba(100,255,218,.06)",
+            borderwidth=1, font=dict(size=11, color="#94A3B8"), x=0.01, y=0.98, itemsizing="constant"),
+        hoverlabel=dict(bgcolor="rgba(3,7,18,0.95)", font_size=11, font_family="Plus Jakarta Sans",
+            bordercolor="rgba(100,255,218,0.2)"),
     )
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False, "scrollZoom": True})
 
