@@ -659,19 +659,33 @@ window.addEventListener('resize',()=>{
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # TABS BELOW THE GRAPH
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    tab1, tab2 = st.tabs(["🏛️ Explorador por Entidad", "👥 Conexiones Cruzadas"])
+    tab1, tab2, tab3 = st.tabs(["🏛️ Explorador por Entidad", "👥 Conexiones Cruzadas", "💰 Capital Riesgo"])
 
-    # ─── TAB 1: EGO NETWORK ───
+    # ─── TAB 1: EGO NETWORK — now includes gestoras + depositarias ───
     with tab1:
-        sec("Explorador por Entidad", "🏛️")
-        ibox("Selecciona una entidad para ver su <b>red de relaciones</b> a 1-2 grados de separación — administradores, socios, y sus conexiones con otras entidades.")
+        sec("Explorador de Red", "🏛️")
+        ibox("Selecciona cualquier nodo del ecosistema — entidad SAV/EAF, gestora o depositaria — para ver su <b>red de relaciones</b> a 1-2 grados de separación.")
 
-        c1, c2 = st.columns([2, 1])
+        # Build explorable list: entities + gestoras + depositarias
+        ent_list = sorted(E["nombre"].tolist())
+        gest_list = sorted([n for n in G.nodes() if G.nodes[n].get("nt") == "gestora"])
+        dep_list = sorted([n for n in G.nodes() if G.nodes[n].get("nt") == "depositaria"])
+
+        c1, c2, c3 = st.columns([2, 1, 1])
         with c1:
-            entities = sorted(E["nombre"].tolist())
-            selected = st.selectbox("Selecciona una entidad", entities, index=entities.index("ALANTRA EQUITIES SOCIEDAD DE VALORES, S.A.") if "ALANTRA EQUITIES SOCIEDAD DE VALORES, S.A." in entities else 0)
+            all_explorable = dep_list + ent_list + gest_list
+            labels = {n: f"⬡ {n}" for n in dep_list}
+            labels.update({n: f"● {n}" for n in ent_list})
+            labels.update({n: f"◆ {n}" for n in gest_list})
+            selected = st.selectbox("Selecciona un nodo", all_explorable,
+                format_func=lambda x: labels.get(x, x),
+                index=all_explorable.index("ALANTRA EQUITIES SOCIEDAD DE VALORES, S.A.") if "ALANTRA EQUITIES SOCIEDAD DE VALORES, S.A." in all_explorable else 0)
         with c2:
-            radius = st.select_slider("Profundidad de red", options=[1, 2, 3], value=2)
+            radius = st.select_slider("Profundidad", options=[1, 2, 3], value=2)
+        with c3:
+            node_type = G.nodes[selected].get("nt", "") if selected in G else ""
+            type_labels = {"entity": "SAV/EAF", "gestora": "Gestora", "depositaria": "Depositaria"}
+            st.markdown(f'<div style="padding:8px 0;"><span class="ebadge ebadge-s" style="font-size:.75rem">{type_labels.get(node_type, node_type)}</span></div>', unsafe_allow_html=True)
 
         if selected and selected in G:
             fig = ego_graph_fig(G, selected, radius=radius)
@@ -679,54 +693,112 @@ window.addEventListener('resize',()=>{
                 ego = nx.ego_graph(G, selected, radius=radius)
                 n_ent = sum(1 for _,d in ego.nodes(data=True) if d.get("nt")=="entity")
                 n_ppl = sum(1 for _,d in ego.nodes(data=True) if d.get("nt") in ("admin","socio"))
+                n_gest = sum(1 for _,d in ego.nodes(data=True) if d.get("nt")=="gestora")
+                n_dep = sum(1 for _,d in ego.nodes(data=True) if d.get("nt")=="depositaria")
 
                 kpi_row([
                     (str(len(ego.nodes())), "Nodos en Red", "🔵", "c1"),
-                    (str(len(ego.edges())), "Conexiones", "🔗", "c2"),
-                    (str(n_ent), "Entidades Conectadas", "🏛️", "c4"),
-                    (str(n_ppl), "Personas Relacionadas", "👤", "c3"),
+                    (str(n_ent), "Entidades", "🏛️", "c4"),
+                    (str(n_gest), "Gestoras", "📊", "c2"),
+                    (str(n_ppl), "Personas", "👤", "c3"),
                 ])
 
                 st.plotly_chart(fig, use_container_width=True)
 
-                # Show the entity details inline
                 gdiv()
-                ent_row = E[E["nombre"] == selected].iloc[0]
-                tipo = ent_row["tipo_entidad"]
-                bc = "ebadge-s" if tipo == "SAV" else "ebadge-e"
-                bl = "Sociedad de Valores" if tipo == "SAV" else "Empresa de Asesoramiento"
-                bd = "🟢" if tipo == "SAV" else "🟣"
 
-                dets = [("CIF", ent_row.get("id","—")), ("Nº Registro", ent_row.get("numero_registro","—")),
-                        ("Fecha Registro", ent_row.get("fecha_registro","—")), ("Provincia", ent_row.get("direccion_provincia","—")),
-                        ("Capital Social", f'{ent_row.get("capital_social","—")} €'), ("FOGAIN", ent_row.get("fogain","—")),
-                        ("Auditor", ent_row.get("ultimo_auditor","—")), ("Email", ent_row.get("titular_email","—"))]
-                rh = "".join(f'<div class="erow"><span class="erow-k">{k}</span><span class="erow-v">{v}</span></div>' for k,v in dets)
-                st.markdown(f'<div class="ecard"><div class="ename">{selected}</div><span class="ebadge {bc}">{bd} {bl}</span><div class="erows">{rh}</div></div>', unsafe_allow_html=True)
+                # ── Detail card depends on node type ──
+                if node_type == "entity":
+                    ent_row = E[E["nombre"] == selected].iloc[0]
+                    tipo = ent_row["tipo_entidad"]
+                    bc = "ebadge-s" if tipo == "SAV" else "ebadge-e"
+                    bl = "Sociedad de Valores" if tipo == "SAV" else "Empresa de Asesoramiento"
+                    bd = "🟢" if tipo == "SAV" else "🟣"
 
-                x1, x2 = st.columns(2)
-                with x1:
-                    sec("Administradores", "👥")
-                    adm = parse_people(ent_row.get("administradores"))
-                    if adm: st.dataframe(pd.DataFrame(adm), use_container_width=True, hide_index=True)
-                with x2:
-                    sec("Socios Principales", "🏢")
-                    soc = parse_socios(ent_row.get("socios_principales"))
-                    if soc: st.dataframe(pd.DataFrame(soc), use_container_width=True, hide_index=True)
+                    dets = [("CIF", ent_row.get("id","—")), ("Nº Registro", ent_row.get("numero_registro","—")),
+                            ("Fecha Registro", ent_row.get("fecha_registro","—")), ("Provincia", ent_row.get("direccion_provincia","—")),
+                            ("Capital Social", f'{ent_row.get("capital_social","—")} €'), ("FOGAIN", ent_row.get("fogain","—")),
+                            ("Auditor", ent_row.get("ultimo_auditor","—")), ("Email", ent_row.get("titular_email","—"))]
+                    rh = "".join(f'<div class="erow"><span class="erow-k">{k}</span><span class="erow-v">{v}</span></div>' for k,v in dets)
+                    st.markdown(f'<div class="ecard"><div class="ename">{selected}</div><span class="ebadge {bc}">{bd} {bl}</span><div class="erows">{rh}</div></div>', unsafe_allow_html=True)
 
-                svcs = parse_svc(ent_row.get("servicios_inversion"))
-                if svcs:
-                    sec("Servicios Autorizados", "📋")
-                    st.markdown(f'<div class="tags">{"".join(f"<span class=tag>{s}</span>" for s in svcs)}</div>', unsafe_allow_html=True)
+                    x1, x2 = st.columns(2)
+                    with x1:
+                        sec("Administradores", "👥")
+                        adm = parse_people(ent_row.get("administradores"))
+                        if adm: st.dataframe(pd.DataFrame(adm), use_container_width=True, hide_index=True)
+                    with x2:
+                        sec("Socios Principales", "🏢")
+                        soc = parse_socios(ent_row.get("socios_principales"))
+                        if soc: st.dataframe(pd.DataFrame(soc), use_container_width=True, hide_index=True)
+
+                    svcs = parse_svc(ent_row.get("servicios_inversion"))
+                    if svcs:
+                        sec("Servicios Autorizados", "📋")
+                        st.markdown(f'<div class="tags">{"".join(f"<span class=tag>{s}</span>" for s in svcs)}</div>', unsafe_allow_html=True)
+
+                elif node_type == "gestora":
+                    gest_funds = F[F["gestora_nombre"] == selected].drop_duplicates("entity_name")
+                    n_f = len(gest_funds)
+                    deps_used = gest_funds["depositaria_nombre"].dropna().unique()
+                    types_managed = gest_funds["entity_type"].value_counts()
+
+                    dets = [("Fondos gestionados", str(n_f)),
+                            ("Depositarias utilizadas", ", ".join(str(d)[:40] for d in deps_used) if len(deps_used) else "—"),
+                            ("Tipos de fondo", ", ".join(f"{t} ({c})" for t,c in types_managed.items()))]
+                    rh = "".join(f'<div class="erow"><span class="erow-k">{k}</span><span class="erow-v">{v}</span></div>' for k,v in dets)
+                    st.markdown(f'<div class="ecard"><div class="ename">{selected[:60]}</div><span class="ebadge ebadge-s">◆ Gestora de Capital Riesgo</span><div class="erows">{rh}</div></div>', unsafe_allow_html=True)
+
+                    if n_f > 0:
+                        sec("Fondos Gestionados", "💰")
+                        fund_df = gest_funds[["entity_name","entity_type","depositaria_nombre","fecha_registro"]].copy()
+                        fund_df.columns = ["Fondo","Tipo","Depositaria","Fecha Registro"]
+                        st.dataframe(fund_df, use_container_width=True, hide_index=True, height=min(400, 35*n_f+38))
+
+                elif node_type == "depositaria":
+                    dep_funds = F[F["depositaria_nombre"] == selected].drop_duplicates("entity_name")
+                    n_f = len(dep_funds)
+                    gest_connected = dep_funds["gestora_nombre"].dropna().nunique()
+
+                    dets = [("Fondos en custodia", str(n_f)),
+                            ("Gestoras conectadas", str(gest_connected)),
+                            ("Tipos de fondo", ", ".join(f"{t} ({c})" for t,c in dep_funds["entity_type"].value_counts().head(5).items()))]
+                    rh = "".join(f'<div class="erow"><span class="erow-k">{k}</span><span class="erow-v">{v}</span></div>' for k,v in dets)
+                    st.markdown(f'<div class="ecard"><div class="ename">{selected[:60]}</div><span class="ebadge ebadge-e">⬡ Depositaria</span><div class="erows">{rh}</div></div>', unsafe_allow_html=True)
+
+                    # Is this a bridge entity?
+                    if G.nodes[selected].get("bridge"):
+                        ibox(f'<b>Nodo puente:</b> {selected[:40]} es socio de entidades SAV/EAF y depositaria de fondos de capital riesgo. Conecta ambos ecosistemas.')
+
+                    sec("Top Gestoras por Fondos en Custodia", "📊")
+                    gest_rank = dep_funds.groupby("gestora_nombre").size().sort_values(ascending=False).head(15).reset_index()
+                    gest_rank.columns = ["Gestora", "Fondos"]
+                    st.dataframe(gest_rank, use_container_width=True, hide_index=True)
+
             else:
-                st.info("Esta entidad no tiene conexiones en la red.")
+                st.info("Este nodo no tiene conexiones en la red.")
 
-    # ─── TAB 2: CROSS CONNECTIONS ───
+    # ─── TAB 2: CROSS CONNECTIONS + BRIDGES ───
     with tab2:
         sec("Personas en Múltiples Entidades", "🔗")
         ibox(f'<b>{len(cross_people)} personas</b> ocupan cargos en más de una entidad regulada simultáneamente. Estas conexiones cruzadas revelan los centros de poder del ecosistema financiero español.')
 
-        # Sort by unique entities
+        # ── Bridge entities highlight ──
+        bridge_nodes = [n for n in G.nodes() if G.nodes[n].get("bridge")]
+        if bridge_nodes:
+            sec("Nodos Puente", "🌉")
+            ibox("Estas entidades conectan el mundo SAV/EAF con el capital riesgo — aparecen como socios en el primer ecosistema y como depositarias en el segundo.")
+            for bn in bridge_nodes:
+                neighbors = list(G.neighbors(bn))
+                n_ent = sum(1 for nb in neighbors if G.nodes[nb].get("nt") == "entity")
+                n_gest = sum(1 for nb in neighbors if G.nodes[nb].get("nt") == "gestora")
+                n_fund_dep = len(F[F["depositaria_nombre"] == bn].drop_duplicates("entity_name"))
+                st.markdown(f'<div class="pcard"><div class="pcard-name">{bn}</div><div class="pcard-sub">NODO PUENTE</div>'
+                    f'<div class="pcard-ent"><div class="pcard-dot" style="background:#0FF0B3"></div><span style="color:#E2E8F0">Socio de <b>{n_ent}</b> entidad(es) SAV/EAF</span></div>'
+                    f'<div class="pcard-ent"><div class="pcard-dot" style="background:#FF6B9D"></div><span style="color:#E2E8F0">Depositaria de <b>{n_fund_dep}</b> fondos de capital riesgo</span></div>'
+                    f'</div>', unsafe_allow_html=True)
+            gdiv()
+
         cross_sorted = sorted(cross_people.items(), key=lambda x: len(set(e[0] for e in x[1])), reverse=True)
 
         for person, entries in cross_sorted[:20]:
@@ -744,6 +816,37 @@ window.addEventListener('resize',()=>{
                 ent_html += f'<div class="pcard-ent"><div class="pcard-dot" style="background:{tipo_color}"></div><span style="color:#E2E8F0;font-weight:600">{ent[:50]}</span><span style="margin-left:auto;color:#475569;font-size:.75rem">{cargos}</span></div>'
 
             st.markdown(f'<div class="pcard"><div class="pcard-name">{person}</div><div class="pcard-sub">{n_ents} ENTIDADES</div>{ent_html}</div>', unsafe_allow_html=True)
+
+    # ─── TAB 3: CAPITAL RIESGO OVERVIEW ───
+    with tab3:
+        sec("Ecosistema Capital Riesgo", "💰")
+        ibox(f'Visión completa del capital riesgo registrado en CNMV: <b>{F["entity_name"].nunique():,} fondos</b> gestionados por <b>{F["gestora_nombre"].nunique()} gestoras</b> y custodiados por <b>{F["depositaria_nombre"].dropna().nunique()} depositarias</b>.')
+
+        c1, c2 = st.columns(2)
+        with c1:
+            sec("Top 15 Gestoras por Fondos", "📊")
+            gest_top = F.drop_duplicates("entity_name").groupby("gestora_nombre").agg(
+                Fondos=("entity_name","count"),
+                Depositarias=("depositaria_nombre","nunique"),
+                Tipos=("entity_type","nunique")
+            ).sort_values("Fondos", ascending=False).head(15).reset_index()
+            gest_top.columns = ["Gestora", "Fondos", "Depositarias", "Tipos"]
+            st.dataframe(gest_top, use_container_width=True, hide_index=True)
+
+        with c2:
+            sec("Depositarias — Concentración", "🏦")
+            dep_top = F.drop_duplicates("entity_name").groupby("depositaria_nombre").agg(
+                Fondos=("entity_name","count"),
+                Gestoras=("gestora_nombre","nunique")
+            ).sort_values("Fondos", ascending=False).reset_index()
+            dep_top.columns = ["Depositaria", "Fondos", "Gestoras"]
+            st.dataframe(dep_top, use_container_width=True, hide_index=True)
+
+        gdiv()
+        sec("Distribución por Tipo de Fondo", "📋")
+        type_counts = F.drop_duplicates("entity_name")["entity_type"].value_counts().reset_index()
+        type_counts.columns = ["Tipo de Fondo", "Cantidad"]
+        st.dataframe(type_counts, use_container_width=True, hide_index=True)
 
     foot()
 
