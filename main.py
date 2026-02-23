@@ -464,7 +464,7 @@ const renderer=new THREE.WebGLRenderer({antialias:true, alpha:false});
 renderer.setSize(W,H);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
 renderer.toneMapping=THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure=1.0;
+renderer.toneMappingExposure=1.15;
 document.body.appendChild(renderer.domElement);
 
 scene.add(new THREE.AmbientLight(0x0d1f3c, 0.5));
@@ -483,7 +483,7 @@ ctrl.maxDistance=160; ctrl.minDistance=3; ctrl.update();
 
 const composer=new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-composer.addPass(new UnrealBloomPass(new THREE.Vector2(W,H), 0.7, 0.5, 0.35));
+composer.addPass(new UnrealBloomPass(new THREE.Vector2(W,H), 1.0, 0.6, 0.25));
 composer.addPass(new OutputPass());
 
 const eP=new Float32Array(D.edges.length*6);
@@ -504,11 +504,11 @@ scene.add(new THREE.LineSegments(eGeo,
 
 const sGeo=new THREE.IcosahedronGeometry(1,3);
 const types={
-  depositaria:{color:0xE0F7FA,emissive:0xE0F7FA,eI:0.55,sMin:0.25,sMax:0.55,label:'Depositaria',cls:'tt-d'},
-  entity:{color:0x00FFD0, emissive:0x00FFD0, eI:0.3, sMin:0.10, sMax:0.38, label:'Entidad SAV/EAF', cls:'tt-e'},
-  gestora:{color:0xFF6B9D,emissive:0xFF6B9D,eI:0.25,sMin:0.06,sMax:0.22,label:'Gestora',cls:'tt-g'},
-  admin: {color:0xFFA726, emissive:0xFFA726, eI:0.2, sMin:0.04, sMax:0.13, label:'Administrador', cls:'tt-a'},
-  socio: {color:0xB388FF, emissive:0xB388FF, eI:0.2, sMin:0.04, sMax:0.13, label:'Socio', cls:'tt-s'}
+  depositaria:{color:0xE0F7FA,emissive:0xE0F7FA,eI:0.7,sMin:0.25,sMax:0.55,label:'Depositaria',cls:'tt-d'},
+  entity:{color:0x00FFD0, emissive:0x00FFD0, eI:0.4, sMin:0.10, sMax:0.38, label:'Entidad SAV/EAF', cls:'tt-e'},
+  gestora:{color:0xFF6B9D,emissive:0xFF6B9D,eI:0.35,sMin:0.06,sMax:0.22,label:'Gestora',cls:'tt-g'},
+  admin: {color:0xFFA726, emissive:0xFFA726, eI:0.28, sMin:0.04, sMax:0.13, label:'Administrador', cls:'tt-a'},
+  socio: {color:0xB388FF, emissive:0xB388FF, eI:0.28, sMin:0.04, sMax:0.13, label:'Socio', cls:'tt-s'}
 };
 const mM={}, nM={}, dm=new THREE.Object3D();
 
@@ -596,14 +596,32 @@ document.getElementById('ld').style.display='none';
 let t=0;
 function animate(){
   requestAnimationFrame(animate);
-  t+=0.005;
+  t+=0.012;
   ctrl.update();
   keyLight.position.copy(camera.position);
+
+  // Breathing glow on all node types
+  for(const[type,mesh] of Object.entries(mM)){
+    const base=types[type].eI;
+    const speed=type==='depositaria'?1.8:type==='entity'?1.2:0.8;
+    const amp=type==='depositaria'?0.15:0.06;
+    mesh.material.emissiveIntensity=base+Math.sin(t*speed)*amp;
+  }
+
+  // Swirling dust particles
   const dp=dGeo.attributes.position.array;
   for(let i=0;i<dN;i++){
-    dp[i*3+1]+=Math.sin(t+i*0.01)*0.003;
+    const phase=i*0.37;
+    dp[i*3]+=Math.sin(t*0.4+phase)*0.004;
+    dp[i*3+1]+=Math.cos(t*0.3+phase)*0.005;
+    dp[i*3+2]+=Math.sin(t*0.5+phase*0.7)*0.003;
   }
   dGeo.attributes.position.needsUpdate=true;
+
+  // Orbiting fill light
+  fillLight.position.x=D.core[0]+Math.cos(t*0.15)*20;
+  fillLight.position.z=D.core[2]+Math.sin(t*0.15)*15;
+
   hov();
   composer.render();
 }
