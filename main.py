@@ -22,6 +22,10 @@ st.markdown("""<style>
 .stApp::before{content:'';position:fixed;inset:0;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.018'/%3E%3C/svg%3E");pointer-events:none;z-index:0}
 .stApp::after{content:'';position:fixed;top:-30%;right:-15%;width:60vw;height:60vw;background:conic-gradient(from 200deg at 50% 50%,rgba(15,240,179,0.06),rgba(129,140,248,0.04),rgba(56,189,248,0.03),transparent 60%);border-radius:50%;filter:blur(100px);pointer-events:none;z-index:0;animation:mspin 40s linear infinite}
 @keyframes mspin{to{transform:rotate(360deg)}}
+iframe{border:none!important;background:#030712!important;display:block!important}
+.stHtml,.stHtml>div,.element-container:has(iframe),.stElementContainer:has(iframe){background:#030712!important;padding:0!important;border:none!important;border-radius:0!important;overflow:hidden!important}
+div[data-testid="stHtmlFrame"],div[data-testid="stComponentFrame"]{background:#030712!important;border:none!important;padding:0!important}
+.stHtml iframe,.stElementContainer iframe{border:0!important;outline:none!important;background:#030712!important}
 section[data-testid="stSidebar"]{background:linear-gradient(180deg,#050a14,#030712)!important;border-right:1px solid var(--border)}
 section[data-testid="stSidebar"]>div{padding-top:0!important}
 header[data-testid="stHeader"]{background:transparent!important}
@@ -628,11 +632,6 @@ window.addEventListener('resize',()=>{
 });
 </script></body></html>'''.replace('"__GRAPH_DATA__"', graph_json)
 
-    # Hide iframe border + seamless background
-    st.markdown('''<style>
-    iframe[title="streamlit_components_v1.html"]{border:none!important;background:#030712!important}
-    .stElementContainer:has(iframe){background:#030712!important;border-radius:0!important;padding:0!important}
-    </style>''', unsafe_allow_html=True)
     _stc.html(threejs_html, height=850)
 
     # Legend is now inside Three.js canvas
