@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import networkx as nx
 import re
+import numpy as np
 from collections import Counter
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -293,36 +294,51 @@ with st.sidebar:
 # ║  RED DE PODER (LANDING)                                       ║
 # ╚═══════════════════════════════════════════════════════════════╝
 if page == "🕸️  Red de Poder":
-    st.markdown('<div class="hero"><div class="hero-title">Red de <span class="em">Poder</span> Financiero</div><div class="hero-sub">910 nodos, 745 conexiones — el mapa completo de relaciones entre entidades, administradores y socios del ecosistema de valores español.</div></div>', unsafe_allow_html=True)
-
-    kpi_row([
-        (str(G.number_of_nodes()), "Nodos en la Red", "🔵", "c1"),
-        (str(G.number_of_edges()), "Conexiones", "🔗", "c2"),
-        (str(len(cross_people)), "Personas Multi-Entidad", "👥", "c3"),
-        (str(len(E)), "Entidades Reguladas", "🏛️", "c4"),
-    ])
+    st.markdown('<div class="hero"><div class="hero-title">Red de <span class="em">Poder</span> Financiero</div><div class="hero-sub">El mapa completo de relaciones entre entidades, administradores y socios del ecosistema de valores español.</div></div>', unsafe_allow_html=True)
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # FULL NETWORK GRAPH — THE HERO
+    # FULL NETWORK GRAPH — HERO VISUAL
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    st.markdown('<div class="nleg"><div class="nleg-i"><div class="nleg-d" style="background:#0FF0B3"></div> Entidades SAV/EAF</div><div class="nleg-i"><div class="nleg-d" style="background:#818CF8"></div> Socios / Accionistas</div><div class="nleg-i"><div class="nleg-d" style="background:#FFBE0B"></div> Administradores</div><div class="nleg-i" style="margin-left:auto;color:#475569;font-size:.7rem">Tamaño = nº de conexiones</div></div>', unsafe_allow_html=True)
-
     @st.cache_data
-    def compute_full_graph_layout(_node_list, _edge_list):
-        """Pre-compute layout for the full graph."""
+    def compute_organic_layout(_node_list, _edge_list):
+        """Organic spiral layout — each component laid out separately, then packed in a spiral."""
         H = nx.Graph()
         for n, nt, et in _node_list:
             H.add_node(n, nt=nt, et=et)
         for u, v in _edge_list:
             H.add_edge(u, v)
-        pos = nx.spring_layout(H, k=2.2, iterations=80, seed=42)
+
+        comps = sorted(nx.connected_components(H), key=len, reverse=True)
+        pos = {}
+        rng = np.random.RandomState(42)
+        golden_angle = np.pi * (3 - np.sqrt(5))
+
+        for idx, comp in enumerate(comps):
+            sub = H.subgraph(comp)
+            n_nodes = len(comp)
+            comp_radius = max(0.8, np.sqrt(n_nodes) * 0.55)
+
+            # Spiral placement — larger clusters near center
+            t = idx * 0.65
+            spiral_r = 2.2 * np.sqrt(t + 1)
+            angle = golden_angle * idx + rng.uniform(-0.25, 0.25)
+            cx = spiral_r * np.cos(angle)
+            cy = spiral_r * np.sin(angle)
+
+            if n_nodes == 1:
+                n = list(comp)[0]
+                pos[n] = (cx + rng.uniform(-0.15, 0.15), cy + rng.uniform(-0.15, 0.15))
+            else:
+                local = nx.spring_layout(sub, k=1.3, iterations=45, seed=42)
+                for n, (lx, ly) in local.items():
+                    pos[n] = (lx * comp_radius + cx, ly * comp_radius + cy)
         return pos
 
     node_list = tuple((n, d.get("nt",""), d.get("et","")) for n, d in G.nodes(data=True))
     edge_list = tuple((u, v) for u, v in G.edges())
-    pos = compute_full_graph_layout(node_list, edge_list)
+    pos = compute_organic_layout(node_list, edge_list)
 
-    # Edges — very subtle
+    # Edges
     ex, ey = [], []
     for u, v in G.edges():
         if u in pos and v in pos:
@@ -330,57 +346,51 @@ if page == "🕸️  Red de Poder":
             ex.extend([x0, x1, None]); ey.extend([y0, y1, None])
 
     traces = [go.Scatter(x=ex, y=ey, mode="lines",
-        line=dict(width=0.3, color="rgba(100,116,139,0.07)"),
+        line=dict(width=0.35, color="rgba(100,116,139,0.09)"),
         hoverinfo="none", showlegend=False)]
 
     # Nodes by type
     cfg = {
-        "entity": ("#0FF0B3", "circle", 12, "Entidades"),
-        "socio":  ("#818CF8", "circle", 5, "Socios"),
-        "admin":  ("#FFBE0B", "circle", 4, "Administradores"),
+        "entity": ("#0FF0B3", 12, "Entidades"),
+        "socio":  ("#818CF8", 5, "Socios"),
+        "admin":  ("#FFBE0B", 4, "Administradores"),
     }
-    for nt, (base_color, sym, base_sz, label) in cfg.items():
-        nodes = [n for n, d in G.nodes(data=True) if d.get("nt") == nt]
+    for nt, (base_color, base_sz, label) in cfg.items():
+        nodes = [n for n in G.nodes() if G.nodes[n].get("nt") == nt and n in pos]
         if not nodes: continue
-        x = [pos[n][0] for n in nodes if n in pos]
-        y = [pos[n][1] for n in nodes if n in pos]
-        nodes_in_pos = [n for n in nodes if n in pos]
+        x = [pos[n][0] for n in nodes]
+        y = [pos[n][1] for n in nodes]
 
-        # Size by degree — more connections = bigger
-        degrees = [G.degree(n) for n in nodes_in_pos]
+        degrees = [G.degree(n) for n in nodes]
         max_deg = max(degrees) if degrees else 1
         if nt == "entity":
-            sizes = [max(10, min(42, 10 + (d / max(max_deg, 1)) * 32)) for d in degrees]
-            opacities = [max(0.7, min(1.0, 0.7 + d / max(max_deg, 1) * 0.3)) for d in degrees]
+            sizes = [max(10, min(44, 10 + (d / max(max_deg, 1)) * 34)) for d in degrees]
+            opac = [max(0.7, min(1.0, 0.7 + d / max(max_deg, 1) * 0.3)) for d in degrees]
         else:
-            sizes = [max(3, min(16, base_sz + (d / max(max_deg, 1)) * 11)) for d in degrees]
-            opacities = [max(0.4, min(0.85, 0.4 + d / max(max_deg, 1) * 0.45)) for d in degrees]
+            sizes = [max(3, min(15, base_sz + (d / max(max_deg, 1)) * 10)) for d in degrees]
+            opac = [max(0.35, min(0.8, 0.35 + d / max(max_deg, 1) * 0.45)) for d in degrees]
 
-        # Hover
         hovers = []
-        for n, deg in zip(nodes_in_pos, degrees):
+        for n, deg in zip(nodes, degrees):
             nbs = list(G.neighbors(n))[:6]
             nb_lines = "<br>".join(f"· {nb[:35]}" for nb in nbs)
-            if len(list(G.neighbors(n))) > 6:
-                nb_lines += f"<br>· ...+{G.degree(n)-6} más"
+            if G.degree(n) > 6: nb_lines += f"<br>· ...+{G.degree(n)-6} más"
             hovers.append(f"<b>{n}</b><br><span style='color:#475569'>{label}</span><br>Conexiones: {deg}<br><br>{nb_lines}")
 
         traces.append(go.Scatter(x=x, y=y, mode="markers", name=label,
-            marker=dict(size=sizes, color=base_color, symbol=sym,
-                opacity=opacities,
-                line=dict(width=0.5, color="rgba(255,255,255,0.06)")),
+            marker=dict(size=sizes, color=base_color, opacity=opac,
+                line=dict(width=0.5, color="rgba(255,255,255,0.05)")),
             text=hovers, hoverinfo="text"))
 
-    # Labels for the most connected entities only (top 15)
-    entity_degrees = [(n, G.degree(n)) for n, d in G.nodes(data=True) if d.get("nt") == "entity" and n in pos]
-    entity_degrees.sort(key=lambda x: x[1], reverse=True)
-    top_labeled = entity_degrees[:12]
-    if top_labeled:
-        lx = [pos[n][0] for n, _ in top_labeled]
-        ly = [pos[n][1] + 0.035 for n, _ in top_labeled]
-        labels = [n[:22] for n, _ in top_labeled]
-        traces.append(go.Scatter(x=lx, y=ly, mode="text", text=labels,
-            textfont=dict(size=8, color="rgba(241,245,249,0.55)", family="Outfit"),
+    # Labels — top 10 entities only
+    entity_degs = sorted([(n, G.degree(n)) for n in G.nodes() if G.nodes[n].get("nt")=="entity" and n in pos], key=lambda x: x[1], reverse=True)
+    if entity_degs:
+        top = entity_degs[:10]
+        traces.append(go.Scatter(
+            x=[pos[n][0] for n,_ in top],
+            y=[pos[n][1] + 0.45 for n,_ in top],
+            mode="text", text=[n[:20] for n,_ in top],
+            textfont=dict(size=7.5, color="rgba(241,245,249,0.45)", family="Outfit"),
             showlegend=False, hoverinfo="none"))
 
     fig = go.Figure(data=traces)
@@ -389,16 +399,23 @@ if page == "🕸️  Red de Poder":
         font=dict(color="#94A3B8", family="Plus Jakarta Sans"),
         xaxis=dict(showgrid=False, zeroline=False, visible=False),
         yaxis=dict(showgrid=False, zeroline=False, visible=False, scaleanchor="x"),
-        height=750, margin=dict(l=0, r=0, t=0, b=0),
-        showlegend=True,
-        legend=dict(bgcolor="rgba(10,15,26,0.85)", bordercolor="rgba(255,255,255,.04)",
-            borderwidth=1, font=dict(size=11, color="#94A3B8"), x=0.01, y=0.99,
-            itemsizing="constant"),
+        height=780, margin=dict(l=0, r=0, t=0, b=0),
+        showlegend=False,
         hoverlabel=dict(bgcolor="#0a0f1a", font_size=11, font_family="Plus Jakarta Sans",
             bordercolor="rgba(15,240,179,0.25)"),
         dragmode="pan",
     )
-    st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": True, "displayModeBar": True, "modeBarButtonsToRemove": ["lasso2d","select2d"]})
+    st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": True, "displayModeBar": False})
+
+    # ── Legend + KPIs BELOW the graph ──
+    st.markdown('<div class="nleg"><div class="nleg-i"><div class="nleg-d" style="background:#0FF0B3"></div> Entidades SAV/EAF</div><div class="nleg-i"><div class="nleg-d" style="background:#818CF8"></div> Socios / Accionistas</div><div class="nleg-i"><div class="nleg-d" style="background:#FFBE0B"></div> Administradores</div><div class="nleg-i" style="margin-left:auto;color:#475569;font-size:.7rem">Tamaño = nº conexiones · Zoom con scroll · Arrastra para mover</div></div>', unsafe_allow_html=True)
+
+    kpi_row([
+        (str(G.number_of_nodes()), "Nodos en la Red", "🔵", "c1"),
+        (str(G.number_of_edges()), "Conexiones", "🔗", "c2"),
+        (str(len(cross_people)), "Personas Multi-Entidad", "👥", "c3"),
+        (str(len(E)), "Entidades Reguladas", "🏛️", "c4"),
+    ])
 
     gdiv()
 
