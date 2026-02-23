@@ -297,11 +297,11 @@ if page == "🕸️  Red de Poder":
     st.markdown('<div class="hero"><div class="hero-title">Red de <span class="em">Poder</span> Financiero</div><div class="hero-sub">El mapa tridimensional de relaciones entre entidades, administradores y socios del ecosistema de valores español. Arrastra para rotar.</div></div>', unsafe_allow_html=True)
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # 3D NETWORK GRAPH — HERO VISUAL
+    # 3D NETWORK GRAPH — IMMERSIVE HERO
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     @st.cache_data
     def compute_3d_layout(_node_list, _edge_list):
-        """3D spherical spiral layout — organic distribution in 3D space."""
+        """3D layout — camera will be placed INSIDE this cloud."""
         H = nx.Graph()
         for n, nt, et in _node_list:
             H.add_node(n, nt=nt, et=et)
@@ -317,28 +317,28 @@ if page == "🕸️  Red de Poder":
         for idx, comp in enumerate(comps):
             sub = H.subgraph(comp)
             n_nodes = len(comp)
-            comp_radius = max(0.8, np.sqrt(n_nodes) * 0.7)
+            comp_radius = max(0.6, np.sqrt(n_nodes) * 0.5)
 
-            # Wide spherical spiral — lots of breathing room
-            t = idx * 1.0
-            spiral_r = 4.0 * np.sqrt(t + 1)
+            # Moderate spread — we'll be INSIDE this
+            t = idx * 0.8
+            spiral_r = 2.8 * np.sqrt(t + 1)
             phi = golden_angle * idx
             theta = np.arccos(1 - 2 * ((idx + 0.5) / max(n_comps, 1)))
 
             cx = spiral_r * np.sin(theta) * np.cos(phi)
             cy = spiral_r * np.sin(theta) * np.sin(phi)
-            cz = spiral_r * np.cos(theta) * 0.7
+            cz = spiral_r * np.cos(theta) * 0.65
 
             if n_nodes == 1:
                 n = list(comp)[0]
-                pos[n] = (cx + rng.uniform(-0.3, 0.3), cy + rng.uniform(-0.3, 0.3), cz + rng.uniform(-0.3, 0.3))
+                pos[n] = (cx + rng.uniform(-0.2, 0.2), cy + rng.uniform(-0.2, 0.2), cz + rng.uniform(-0.2, 0.2))
             else:
-                local = nx.spring_layout(sub, k=1.5, iterations=40, seed=42, dim=3)
+                local = nx.spring_layout(sub, k=1.4, iterations=40, seed=42, dim=3)
                 for n, coords in local.items():
                     pos[n] = (
                         coords[0] * comp_radius + cx,
                         coords[1] * comp_radius + cy,
-                        coords[2] * comp_radius * 0.6 + cz,
+                        coords[2] * comp_radius * 0.5 + cz,
                     )
         return pos
 
@@ -346,7 +346,7 @@ if page == "🕸️  Red de Poder":
     edge_list = tuple((u, v) for u, v in G.edges())
     pos3d = compute_3d_layout(node_list, edge_list)
 
-    # 3D Edges
+    # 3D Edges — subtle connections
     ex, ey, ez = [], [], []
     for u, v in G.edges():
         if u in pos3d and v in pos3d:
@@ -354,16 +354,17 @@ if page == "🕸️  Red de Poder":
             ex.extend([x0, x1, None]); ey.extend([y0, y1, None]); ez.extend([z0, z1, None])
 
     traces = [go.Scatter3d(x=ex, y=ey, z=ez, mode="lines",
-        line=dict(width=1.2, color="rgba(100,116,139,0.12)"),
+        line=dict(width=1.5, color="rgba(15,240,179,0.06)"),
         hoverinfo="none", showlegend=False)]
 
-    # 3D Nodes
+    # Node config: (base_color_rgb, base_size, glow_color, label)
     cfg = {
-        "entity": ("#0FF0B3", 8, "🏛️ Entidades"),
-        "socio":  ("#818CF8", 3, "💼 Socios"),
-        "admin":  ("#FFBE0B", 2.5, "👤 Administradores"),
+        "entity": ((15, 240, 179), 7, "rgba(15,240,179,0.06)", "🏛️ Entidades"),
+        "socio":  ((129, 140, 248), 3, "rgba(129,140,248,0.05)", "💼 Socios"),
+        "admin":  ((255, 190, 11), 2.5, "rgba(255,190,11,0.05)", "👤 Administradores"),
     }
-    for nt, (base_color, base_sz, label) in cfg.items():
+
+    for nt, (rgb, base_sz, glow_color, label) in cfg.items():
         nodes = [n for n in G.nodes() if G.nodes[n].get("nt") == nt and n in pos3d]
         if not nodes: continue
         x = [pos3d[n][0] for n in nodes]
@@ -374,14 +375,13 @@ if page == "🕸️  Red de Poder":
         max_deg = max(degrees) if degrees else 1
 
         if nt == "entity":
-            sizes = [max(5, min(28, 5 + (d / max(max_deg, 1)) * 23)) for d in degrees]
-            # Scatter3d doesn't support opacity list — use RGBA colors
-            rgb = (15, 240, 179)  # #0FF0B3
-            colors = [f"rgba({rgb[0]},{rgb[1]},{rgb[2]},{max(0.75, min(1.0, 0.75 + d / max(max_deg, 1) * 0.25)):.2f})" for d in degrees]
+            sizes = [max(5, min(24, 5 + (d / max(max_deg, 1)) * 19)) for d in degrees]
+            glow_sizes = [s * 3.5 for s in sizes]
         else:
-            sizes = [max(2, min(10, base_sz + (d / max(max_deg, 1)) * 7)) for d in degrees]
-            rgb = (129, 140, 248) if nt == "socio" else (255, 190, 11)  # #818CF8 / #FFBE0B
-            colors = [f"rgba({rgb[0]},{rgb[1]},{rgb[2]},{max(0.4, min(0.85, 0.4 + d / max(max_deg, 1) * 0.45)):.2f})" for d in degrees]
+            sizes = [max(2, min(9, base_sz + (d / max(max_deg, 1)) * 6)) for d in degrees]
+            glow_sizes = [s * 3.0 for s in sizes]
+
+        colors = [f"rgba({rgb[0]},{rgb[1]},{rgb[2]},{max(0.7, min(1.0, 0.7 + d / max(max_deg, 1) * 0.3)):.2f})" for d in degrees]
 
         hovers = []
         for n, deg in zip(nodes, degrees):
@@ -390,17 +390,23 @@ if page == "🕸️  Red de Poder":
             if G.degree(n) > 6: nb_lines += f"<br>...+{G.degree(n)-6} más"
             hovers.append(f"<b>{n}</b><br>{label}<br>Conexiones: {deg}<br><br>{nb_lines}")
 
+        # GLOW LAYER — large transparent halos behind nodes
+        traces.append(go.Scatter3d(x=x, y=y, z=z, mode="markers",
+            marker=dict(size=glow_sizes, color=glow_color, line=dict(width=0)),
+            hoverinfo="none", showlegend=False))
+
+        # CORE NODES
         traces.append(go.Scatter3d(x=x, y=y, z=z, mode="markers", name=label,
             marker=dict(size=sizes, color=colors,
-                line=dict(width=0.3, color="rgba(255,255,255,0.08)")),
+                line=dict(width=0.3, color=f"rgba({rgb[0]},{rgb[1]},{rgb[2]},0.3)")),
             text=hovers, hoverinfo="text"))
 
     fig = go.Figure(data=traces)
 
-    # Camera: slight angle for dramatic perspective
+    # Camera INSIDE the network — immersive perspective
     camera = dict(
-        eye=dict(x=1.8, y=1.8, z=1.0),
-        center=dict(x=0, y=0, z=-0.05),
+        eye=dict(x=0.45, y=0.45, z=0.25),
+        center=dict(x=0, y=0, z=0),
         up=dict(x=0, y=0, z=1),
     )
 
@@ -415,20 +421,20 @@ if page == "🕸️  Red de Poder":
             aspectmode="data",
         ),
         font=dict(color="#94A3B8", family="Plus Jakarta Sans"),
-        height=820, margin=dict(l=0, r=0, t=0, b=0),
+        height=850, margin=dict(l=0, r=0, t=0, b=0),
         showlegend=True,
         legend=dict(
-            bgcolor="rgba(10,15,26,0.85)", bordercolor="rgba(255,255,255,.04)",
+            bgcolor="rgba(3,7,18,0.9)", bordercolor="rgba(15,240,179,.08)",
             borderwidth=1, font=dict(size=11, color="#94A3B8"),
             x=0.01, y=0.98, itemsizing="constant",
         ),
-        hoverlabel=dict(bgcolor="#0a0f1a", font_size=11, font_family="Plus Jakarta Sans",
-            bordercolor="rgba(15,240,179,0.25)"),
+        hoverlabel=dict(bgcolor="rgba(3,7,18,0.95)", font_size=11, font_family="Plus Jakarta Sans",
+            bordercolor="rgba(15,240,179,0.3)"),
     )
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False, "scrollZoom": True})
 
     # ── Legend + KPIs BELOW the graph ──
-    st.markdown('<div class="nleg"><div class="nleg-i"><div class="nleg-d" style="background:#0FF0B3"></div> Entidades SAV/EAF</div><div class="nleg-i"><div class="nleg-d" style="background:#818CF8"></div> Socios / Accionistas</div><div class="nleg-i"><div class="nleg-d" style="background:#FFBE0B"></div> Administradores</div><div class="nleg-i" style="margin-left:auto;color:#475569;font-size:.7rem">Arrastra para rotar · Scroll para zoom · Shift+drag para mover</div></div>', unsafe_allow_html=True)
+    st.markdown('<div class="nleg"><div class="nleg-i"><div class="nleg-d" style="background:#0FF0B3"></div> Entidades SAV/EAF</div><div class="nleg-i"><div class="nleg-d" style="background:#818CF8"></div> Socios / Accionistas</div><div class="nleg-i"><div class="nleg-d" style="background:#FFBE0B"></div> Administradores</div><div class="nleg-i" style="margin-left:auto;color:#475569;font-size:.7rem">Arrastra para rotar · Scroll para zoom</div></div>', unsafe_allow_html=True)
 
     kpi_row([
         (str(G.number_of_nodes()), "Nodos en la Red", "🔵", "c1"),
