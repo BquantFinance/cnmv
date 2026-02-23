@@ -344,11 +344,21 @@ if page == "🕸️  Red de Poder":
     edge_list = tuple((u, v) for u, v in G.edges())
     pos3d = compute_3d_layout(node_list, edge_list)
 
-    # Camera depth
+    # Camera depth — from INSIDE the dense core
     all_coords = np.array(list(pos3d.values()))
     scene_center = all_coords.mean(axis=0)
     scene_scale = np.abs(all_coords - scene_center).max()
-    cam_world = np.array([0.5, 0.5, 0.3]) * scene_scale + scene_center
+
+    # Find the dense core — top 30 most connected nodes
+    top30 = sorted(pos3d.keys(), key=lambda n: G.degree(n), reverse=True)[:30]
+    core_center = np.array([pos3d[n] for n in top30]).mean(axis=0)
+    core_norm = (core_center - scene_center) / scene_scale
+
+    # Camera just offset from core center, looking through the network
+    cam_eye_norm = core_norm + np.array([0.15, 0.15, 0.08])
+    cam_center_norm = -core_norm * 0.3
+
+    cam_world = cam_eye_norm * scene_scale + scene_center
     node_dists = {n: np.linalg.norm(np.array(p) - cam_world) for n, p in pos3d.items()}
     d_min, d_max = min(node_dists.values()), max(node_dists.values())
     d_range = max(d_max - d_min, 1)
@@ -420,7 +430,10 @@ if page == "🕸️  Red de Poder":
             xaxis=dict(visible=False, showbackground=False),
             yaxis=dict(visible=False, showbackground=False),
             zaxis=dict(visible=False, showbackground=False),
-            camera=dict(eye=dict(x=0.5, y=0.5, z=0.3), center=dict(x=0,y=0,z=0), up=dict(x=0,y=0,z=1)),
+            camera=dict(
+                eye=dict(x=float(cam_eye_norm[0]), y=float(cam_eye_norm[1]), z=float(cam_eye_norm[2])),
+                center=dict(x=float(cam_center_norm[0]), y=float(cam_center_norm[1]), z=float(cam_center_norm[2])),
+                up=dict(x=0, y=0, z=1)),
             aspectmode="data",
         ),
         font=dict(color="#94A3B8", family="Plus Jakarta Sans"),
