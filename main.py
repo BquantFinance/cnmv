@@ -121,7 +121,7 @@ def load_entities():
 
 @st.cache_data
 def load_funds():
-    df = pd.read_csv("data/all_entities_detailed.csv")
+    df = pd.read_csv("all_entities_detailed.csv")
     df["fecha_dt"] = pd.to_datetime(df["fecha_registro"], format="%d/%m/%Y", errors="coerce")
     return df
 
